@@ -2,7 +2,8 @@
 
 A plan stores the hash of the live state it was built from. apply() asks the plan kind's applier to
 re-read the live state; when the hash changed, the plan is refused and the user gets a fresh plan.
-Every applied change is written to audit_log.
+Every applied change is written to audit_log. A payload key named `secret` (e.g. a demo account password)
+is removed from the stored plan as soon as the plan is applied, fails or expires.
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ def create(db: Database, kind: str, app_id: int | None, changes: list[dict[str, 
            ttl_minutes: int = TTL_MINUTES) -> Plan:
     if kind not in _appliers:
         raise PlanError(f"No applier for plan kind '{kind}'.")
+    sweep(db)
     pid = f"{kind}-{pysecrets.token_hex(4)}"
     now = dt.datetime.now(dt.UTC)
     body = {"changes": changes, "notes": notes or [], **(payload or {})}
@@ -65,9 +67,23 @@ def get(db: Database, plan_id: str, pending_only: bool = True) -> Plan:
         if row["status"] != "pending":
             raise PlanError(f"Plan '{plan_id}' is {row['status']}; make a new plan.")
         if row["expires_at"] < now_utc():
-            db.execute("UPDATE plans SET status = 'expired' WHERE id = ?", (plan_id,))
+            _close(db, plan_id, "expired")
             raise PlanError(f"Plan '{plan_id}' expired; make a new plan (live data may have changed).")
     return row
+
+
+def sweep(db: Database) -> None:
+    """Expire pending plans past their time and drop secrets from every plan that is no longer pending."""
+    db.execute("UPDATE plans SET status = 'expired' WHERE status = 'pending' AND expires_at < ?", (now_utc(),))
+    db.execute("UPDATE plans SET payload = json_remove(payload, '$.secret') "
+               "WHERE status != 'pending' AND json_extract(payload, '$.secret') IS NOT NULL")
+
+
+def _close(db: Database, plan_id: str, status: str, result: dict[str, Any] | None = None) -> None:
+    db.execute("UPDATE plans SET status = ?, result = ?, payload = json_remove(payload, '$.secret'), "
+               "applied_at = CASE WHEN ? = 'applied' THEN ? ELSE applied_at END WHERE id = ?",
+               (status, json.dumps(result, default=str) if result is not None else None, status, now_utc(),
+                plan_id))
 
 
 def verify(plan: Plan, current_hash: str) -> None:
@@ -95,13 +111,10 @@ def apply(db: Database, plan_id: str) -> dict[str, Any]:
     try:
         result = fn(db, plan)
     except PlanError:
-        db.execute("UPDATE plans SET status = 'failed', result = ? WHERE id = ?",
-                   (json.dumps({"error": "out of date"}), plan_id))
+        _close(db, plan_id, "failed", {"error": "out of date"})
         raise
     except Exception as e:
-        db.execute("UPDATE plans SET status = 'failed', result = ? WHERE id = ?",
-                   (json.dumps({"error": str(e)[:500]}), plan_id))
+        _close(db, plan_id, "failed", {"error": str(e)[:500]})
         raise
-    db.execute("UPDATE plans SET status = 'applied', applied_at = ?, result = ? WHERE id = ?",
-               (now_utc(), json.dumps(result, default=str), plan_id))
+    _close(db, plan_id, "applied", result)
     return result

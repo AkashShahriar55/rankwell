@@ -41,3 +41,14 @@ def test_expired_plan(db: Database) -> None:
 def test_unknown_kind(db: Database) -> None:
     with pytest.raises(PlanError):
         plans.create(db, "nope", None, [], "h")
+
+
+def test_secret_is_dropped_when_plan_closes(db: Database) -> None:
+    p = plans.create(db, "test-kind", None, [], "h", payload={"current": "h", "secret": {"pw": "x"}})
+    plans.apply(db, p["id"])
+    assert "secret" not in plans.get(db, p["id"], pending_only=False)
+    q = plans.create(db, "test-kind", None, [], "h", payload={"current": "h", "secret": {"pw": "x"}},
+                     ttl_minutes=-1)
+    plans.sweep(db)
+    row = plans.get(db, q["id"], pending_only=False)
+    assert row["status"] == "expired" and "secret" not in row
