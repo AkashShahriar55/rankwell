@@ -1,0 +1,11 @@
+{
+  "name": "rankwell",
+  "owner": { "name": "Akash Shahriar" },
+  "plugins": [
+    {
+      "name": "rankwell",
+      "source": "./",
+      "description": "App Store Optimization and release assistant for Claude Code."
+    }
+  ]
+}
