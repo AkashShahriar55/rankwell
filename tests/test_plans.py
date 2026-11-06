@@ -1,0 +1,43 @@
+import pytest
+
+from rankwell import plans
+from rankwell.db import Database
+from rankwell.errors import PlanError
+
+calls: list[str] = []
+
+
+@plans.applier("test-kind")
+def _apply(db: Database, plan: plans.Plan) -> dict:
+    plans.verify(plan, plan["current"])
+    plans.audit(db, plan["id"], "test-kind", "target", "field", "old", "new")
+    calls.append(plan["id"])
+    return {"ok": True}
+
+
+def test_plan_apply_once(db: Database) -> None:
+    h = plans.state_hash({"a": 1})
+    p = plans.create(db, "test-kind", None, [{"field": "x"}], h, payload={"current": h})
+    assert p["changes"] == [{"field": "x"}] and p["status"] == "pending"
+    assert plans.apply(db, p["id"]) == {"ok": True}
+    assert db.value("SELECT count(*) FROM audit_log") == 1
+    with pytest.raises(PlanError, match="applied"):
+        plans.apply(db, p["id"])
+
+
+def test_out_of_date_plan_is_refused(db: Database) -> None:
+    p = plans.create(db, "test-kind", None, [], plans.state_hash(1), payload={"current": plans.state_hash(2)})
+    with pytest.raises(PlanError, match="changed since"):
+        plans.apply(db, p["id"])
+    assert plans.get(db, p["id"], pending_only=False)["status"] == "failed"
+
+
+def test_expired_plan(db: Database) -> None:
+    p = plans.create(db, "test-kind", None, [], "h", payload={"current": "h"}, ttl_minutes=-1)
+    with pytest.raises(PlanError, match="expired"):
+        plans.apply(db, p["id"])
+
+
+def test_unknown_kind(db: Database) -> None:
+    with pytest.raises(PlanError):
+        plans.create(db, "nope", None, [], "h")

@@ -106,3 +106,12 @@ def run() -> None:
     except RankwellError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
+
+
+def _load_commands() -> None:
+    from .commands import register_all
+
+    register_all(main)
+
+
+_load_commands()

@@ -28,7 +28,7 @@ def test_post_is_not_retried() -> None:
 def test_transport_error_becomes_store_error() -> None:
     with respx.mock:
         respx.get("https://example.com/x").mock(side_effect=httpx.ConnectError("boom"))
-        with pytest.raises(StoreError, match="Could not reach example.com"):
+        with pytest.raises(StoreError, match=r"Could not reach example\.com"):
             http.request("GET", "https://example.com/x", sleep=lambda s: None)
 
 

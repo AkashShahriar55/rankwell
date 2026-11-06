@@ -1,10 +1,13 @@
-"""Rankwell MCP server (stdio). Tools are grouped by area in tools_*.py, each with register(mcp)."""
+"""Rankwell MCP server (stdio). Every rankwell.mcp.tools_* module has register(mcp) and is loaded here."""
 
 from __future__ import annotations
 
+import importlib
+import pkgutil
+
 from mcp.server.mcpserver import MCPServer
 
-from . import tools_apps, tools_research
+from .. import mcp as package
 
 INSTRUCTIONS = """\
 Rankwell is the user's App Store Optimization (ASO) and release assistant for their own iOS apps.
@@ -19,11 +22,14 @@ Rules:
 - Popularity is a proxy from autocomplete, not search volume; compare suggested_after_chars across lengths.
 """
 
-mcp = MCPServer("rankwell", instructions=INSTRUCTIONS)
 
-for module in (tools_apps, tools_research):
-    module.register(mcp)
+def build() -> MCPServer:
+    server = MCPServer("rankwell", instructions=INSTRUCTIONS)
+    for info in sorted(pkgutil.iter_modules(package.__path__), key=lambda m: m.name):
+        if info.name.startswith("tools_"):
+            importlib.import_module(f"{package.__name__}.{info.name}").register(server)
+    return server
 
 
 def run() -> None:
-    mcp.run()
+    build().run()
