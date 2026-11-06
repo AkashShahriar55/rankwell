@@ -109,6 +109,17 @@ def test_find_newest_ipa(tmp_path: Path) -> None:
     assert release.find_ipa(tmp_path, cfg, "build/ios/ipa/old.ipa") == old
 
 
+def test_find_ipa_absolute_glob(tmp_path: Path) -> None:
+    out = tmp_path / "elsewhere [x]"
+    ipa = make_ipa(out / "dist" / "App.ipa")
+    cfg = release.parse({"build": {"kind": "custom", "command": "make", "ipa": f"{tmp_path}/elsewhere*/dist/*.ipa"}})
+    assert release.find_ipa(tmp_path / "repo", cfg) == ipa
+    repo = tmp_path / "re[po]"  # glob characters in the repo path are taken literally
+    nested = make_ipa(repo / "out" / "a" / "b" / "N.ipa")
+    cfg = release.parse({"build": {"kind": "custom", "command": "make", "ipa": "out/**/*.ipa"}})
+    assert release.find_ipa(repo, cfg) == nested
+
+
 def test_altool_command_and_temp_key_cleanup(tmp_path: Path) -> None:
     k = key()
     ipa = make_ipa(tmp_path / "a.ipa")
@@ -222,12 +233,12 @@ def test_build_start_and_status(db: Database, app: dict[str, Any], repo: Path) -
         started.update(script=script, cwd=cwd, log=log)
         return os.getpid()  # alive while the test runs
 
-    job = release.build_start(db, app, spawn)
+    job = release.build_start(db, app, spawn, confirmed=True)
     assert started["cwd"] == repo and started["script"].startswith("flutter build ipa --release\n")
     assert "build-snap-" in job["log_path"] and job["status"] == "running"
     assert Path(job["log_path"]).parent == Path(os.environ["RANKWELL_HOME"]) / "logs"
     with pytest.raises(RankwellError, match="already running"):
-        release.build_start(db, app, spawn)
+        release.build_start(db, app, spawn, confirmed=True)
     st = release.build_status(db, app)
     assert st["status"] == "running" and st["log_tail"][-1].startswith("$ flutter build ipa")
 
@@ -239,18 +250,68 @@ def test_build_start_and_status(db: Database, app: dict[str, Any], repo: Path) -
     assert db.value("SELECT status FROM build_jobs") == "ok"
 
 
+def test_build_start_without_confirm_runs_nothing(db: Database, app: dict[str, Any], repo: Path) -> None:
+    def spawn(script: str, cwd: Path, log: Path) -> int:
+        raise AssertionError("must not run before the user confirms")
+
+    preview = release.build_start(db, app, spawn)
+    assert preview["started"] is False and preview["command"] == "flutter build ipa --release"
+    assert preview["cwd"] == str(repo) and "build-snap-" in preview["log_path"]
+    assert not Path(preview["log_path"]).exists() and db.value("SELECT count(*) FROM build_jobs") == 0
+
+
+def test_build_start_mcp_tool_asks_first(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+
+    from mcp.server.mcpserver import MCPServer
+
+    from rankwell import db as dbmod
+    from rankwell.mcp import tools_release
+
+    a = apps.add(dbmod.get(), "Snap", store_id=int(APP), bundle_id="com.example.app", repo_path=str(repo))
+    started: list[str] = []
+    monkeypatch.setattr(release, "_spawn", lambda script, cwd, log: started.append(script) or os.getpid())
+    server = MCPServer("t")
+    tools_release.register(server)
+    tool = next(t for t in asyncio.run(server.list_tools()) if t.name == "build_start")
+    assert "confirmed" in tool.input_schema["properties"] and "ask" in (tool.description or "").lower()
+    first = str(asyncio.run(server.call_tool("build_start", {"app": a["slug"]})))
+    assert started == [] and "flutter build ipa --release" in first and str(repo) in first
+    assert "confirmed=True" in first
+    second = str(asyncio.run(server.call_tool("build_start", {"app": a["slug"], "confirmed": True})))
+    assert len(started) == 1 and started[0].startswith("flutter build ipa --release") and "Build started" in second
+
+
+def test_ship_build_shows_command_and_asks(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    from click.testing import CliRunner
+
+    from rankwell import db as dbmod
+    from rankwell.cli import main
+
+    apps.add(dbmod.get(), "Snap", store_id=int(APP), repo_path=str(repo))
+    ran: list[Any] = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: ran.append(a) or subprocess.CompletedProcess(a, 0))
+    no = CliRunner().invoke(main, ["ship", "snap", "--step", "build"], input="n\n")
+    assert no.exit_code != 0 and "flutter build ipa --release" in no.output and str(repo) in no.output
+    assert "Run this build?" in no.output and ran == []
+    yes = CliRunner().invoke(main, ["ship", "snap", "--step", "build", "--yes"])
+    assert yes.exit_code == 0 and "Run this build?" not in yes.output and len(ran) == 1
+
+
 def test_build_failed_and_stopped(db: Database, app: dict[str, Any]) -> None:
-    job = release.build_start(db, app, lambda s, c, log: 999_999_99)
+    job = release.build_start(db, app, lambda s, c, log: 999_999_99, confirmed=True)
     with Path(job["log_path"]).open("a") as f:
         f.write("error: signing\n[rankwell] exit 65\n")
     assert release.build_status(db, app)["job"]["exit_code"] == 65
-    release.build_start(db, app, lambda s, c, log: 999_999_99)
+    release.build_start(db, app, lambda s, c, log: 999_999_99, confirmed=True)
     assert release.build_status(db, app)["status"] == "stopped"
 
 
 def test_real_spawn_runs_detached(db: Database, app: dict[str, Any], repo: Path) -> None:
     (repo / ".aso" / "release.toml").write_text('[build]\nkind = "custom"\ncommand = "echo hello"\n')
-    job = release.build_start(db, app)
+    job = release.build_start(db, app, confirmed=True)
     release._procs[job["pid"]].wait(timeout=10)
     st = release.build_status(db, app)
     assert st["status"] == "ok" and "hello" in st["log_tail"]
@@ -319,6 +380,48 @@ def test_custom_upload_without_key(db: Database, app: dict[str, Any], repo: Path
     assert ran == [(["/bin/sh", "-c", f"up.sh '{ipa}'"], repo)]
 
 
+@pytest.mark.parametrize("template", ['up.sh {ipa}', 'up.sh "{ipa}"', "up.sh '{ipa}'"])
+def test_upload_command_quotes_ipa_once(template: str, tmp_path: Path) -> None:
+    import shlex
+    import subprocess
+
+    ipa = tmp_path / "My \"odd\" App's.ipa"
+    cmd = release.upload_shell_command(template, ipa)
+    assert shlex.split(cmd) == ["up.sh", str(ipa)]
+    out = subprocess.run(["/bin/sh", "-c", cmd.replace("up.sh", "printf '%s\\n'", 1)], capture_output=True,
+                         text=True, check=True).stdout
+    assert out == f"{ipa}\n"
+
+
+class PagedBuilds:
+    """/v1/builds in pages of two, newest first; records the query parameters."""
+
+    def __init__(self, n: int) -> None:
+        self.rows = [{"id": f"b{i}", "attributes": {"version": str(i), "processingState": "VALID"},
+                      "relationships": {"preReleaseVersion": {"data": {"id": "pre-old" if i < 5 else "pre-new"}}}}
+                     for i in range(n, 0, -1)]
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def get(self, path: str, **params: Any) -> dict[str, Any]:
+        self.calls.append((path, params))
+        page = int(path.split("page=")[1]) if "page=" in path else 0
+        rows = self.rows[page * 2: page * 2 + 2]
+        included = [{"id": "pre-old", "attributes": {"version": "1.0"}},
+                    {"id": "pre-new", "attributes": {"version": "1.1"}}]
+        nxt = f"https://api.example/v1/builds?page={page + 1}" if page * 2 + 2 < len(self.rows) else None
+        return {"data": rows, "included": included, "links": {"next": nxt} if nxt else {}}
+
+
+def test_builds_reads_every_page() -> None:
+    fake = PagedBuilds(9)
+    old = release.builds(fake, 1, "1.0")  # type: ignore[arg-type]
+    assert [b["build"] for b in old] == ["4", "3", "2", "1"]  # on pages 3 and 5, past the first page
+    assert fake.calls[0][1]["filter[preReleaseVersion.version]"] == "1.0" and len(fake.calls) == 5
+    assert len(release.builds(fake, 1)) == 9  # type: ignore[arg-type]
+    capped = PagedBuilds(40)
+    assert len(release.builds(capped, 1, max_pages=3)) == 6  # type: ignore[arg-type]
+
+
 def test_wait_for_processing(fake: FakeASC) -> None:
     fake.build("b8", "1.1", "8", state="PROCESSING")
     t = [0.0]
@@ -382,6 +485,21 @@ def test_review_info_hides_password(db: Database, app: dict[str, Any], fake: Fak
     assert "s3cret-pass" not in str(db.value("SELECT payload FROM plans WHERE id = ?", (p["id"],)))
     with pytest.raises(RankwellError, match="not an email"):
         release.plan_review_info(db, listing.connect(), app, {"email": "nope"})
+
+
+def test_review_info_hash_leaves_out_the_password(db: Database, app: dict[str, Any], fake: FakeASC) -> None:
+    attrs = fake.review["v2"]["attributes"]
+    attrs.update(demoAccountRequired=True, demoAccountName="demo", demoAccountPassword="old-secret")
+    p = release.plan_review_info(db, listing.connect(), app, {"notes": "Tap Start."})
+    hashed = {**attrs, "demoAccountPassword": True}
+    assert p["live_hash"] == plans.state_hash({"version": "v2", "detail": "rd1", "attrs": hashed})
+    assert p["live_hash"] != plans.state_hash({"version": "v2", "detail": "rd1", "attrs": attrs})
+    attrs["demoAccountPassword"] = "rotated"  # still set: the plan still applies
+    plans.apply(db, p["id"])
+    p = release.plan_review_info(db, listing.connect(), app, {"notes": "Tap Go."})
+    attrs["demoAccountPassword"] = None  # cleared in App Store Connect: refuse
+    with pytest.raises(PlanError):
+        plans.apply(db, p["id"])
 
 
 def test_review_info_creates_detail(db: Database, app: dict[str, Any], fake: FakeASC) -> None:

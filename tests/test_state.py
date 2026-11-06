@@ -146,6 +146,60 @@ def test_hand_edited_experiments(tmp_path: Path) -> None:
     assert state.experiments(tmp_path)[0]["id"] == "EXP-008"
 
 
+def test_close_keeps_indented_lines_under_fields(tmp_path: Path) -> None:
+    (tmp_path / ".aso").mkdir()
+    p = tmp_path / ".aso" / "experiments.md"
+    p.write_text("# Experiments\n\n## EXP-001: Subtitle\n- Status: open\n  waiting for the 1.2 release\n"
+                 "- Check after: 2026-11-01\n- Result:\n  week 1: #30, week 2: #25 (hand-written)\n"
+                 "- Verdict:\n  leaning confirmed\n")
+    state.close_experiment(tmp_path, "EXP-001", "#18", "confirmed", today="2026-11-07")
+    text = p.read_text()
+    assert "- Status: closed\n  waiting for the 1.2 release\n" in text
+    assert "- Result: #18\n  week 1: #30, week 2: #25 (hand-written)\n" in text
+    assert "- Verdict: confirmed\n  leaning confirmed\n" in text
+    e = state.experiments(tmp_path)[0]
+    assert e["status"] == "closed" and e["verdict"] == "confirmed"
+
+
+def test_unreadable_file_is_never_overwritten(tmp_path: Path) -> None:
+    state.init(tmp_path, APP)
+    p = tmp_path / ".aso" / "progress.md"
+    raw = "# Progress\n\n## 2026-11-01\n- caf\xe9 notes\n".encode("latin-1")  # not UTF-8
+    p.write_bytes(raw)
+    with pytest.raises(RankwellError, match=r"progress\.md.*not valid UTF-8"):
+        state.note(tmp_path, "progress", "New line", today="2026-11-07")
+    assert p.read_bytes() == raw
+    e = tmp_path / ".aso" / "experiments.md"
+    e.write_bytes(b"## EXP-001: x\n- Status: open\n- Note: \xff\n")
+    with pytest.raises(RankwellError, match=r"experiments\.md"):
+        state.open_experiment(tmp_path, "h", "c", "m", "b", today="2026-11-07")
+    with pytest.raises(RankwellError, match=r"experiments\.md"):
+        state.close_experiment(tmp_path, "EXP-001", "r", "failed", today="2026-11-07")
+    assert e.read_bytes() == b"## EXP-001: x\n- Status: open\n- Note: \xff\n"
+    r = state.read(tmp_path)  # reading for display goes on and names the broken files
+    assert "progress.md" not in r["files"] and any("progress.md" in x for x in r["errors"])
+
+
+def test_writes_are_atomic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+
+    state.init(tmp_path, APP)
+    p = tmp_path / ".aso" / "decisions.md"
+    before = p.read_text()
+
+    def boom(src: str, dst: str) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(os, "replace", boom)
+    with pytest.raises(RankwellError, match="No space left"):
+        state.note(tmp_path, "decision", "Keep it", today="2026-11-07")
+    monkeypatch.undo()
+    assert p.read_text() == before
+    assert sorted(x.name for x in p.parent.iterdir() if x.name.endswith(".tmp")) == []  # temp file cleaned up
+    state.note(tmp_path, "decision", "Keep it", today="2026-11-07")
+    assert "Keep it" in p.read_text()
+
+
 def test_repo_for_errors(tmp_path: Path) -> None:
     with pytest.raises(RankwellError, match="No repo folder"):
         state.repo_for({"name": "Demo", "repo_path": None})

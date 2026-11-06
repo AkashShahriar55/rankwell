@@ -46,7 +46,8 @@ def register(main: click.Group) -> None:
         if step == "build":
             repo = release.repo_of(a)
             cfg = release.load(repo)
-            click.echo(f"In {repo}:\n  {cfg.build_command}")
+            click.echo(f"This runs the build command from {repo / '.aso' / 'release.toml'}\nIn {repo}:\n"
+                       f"  {cfg.build_command}")
             if not yes:
                 click.confirm("Run this build?", abort=True)
             code = subprocess.run(["/bin/sh", "-c", cfg.build_command], cwd=repo, check=False).returncode  # noqa: S603

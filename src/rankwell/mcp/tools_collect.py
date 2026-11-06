@@ -60,6 +60,7 @@ def register(mcp: MCPServer) -> None:
         whether App Store Connect analytics are flowing, and whether the daily job is installed. Use before
         trusting ranks or stats, or when data looks old."""
         d = db()
+        collect.mark_stale_runs(d)
         has_key = secrets.has_asc_key()
         fresh = [app_freshness(d, a, has_key) for a in apps.list_apps(d)]
         runs = recent_runs(d)

@@ -6,8 +6,12 @@ are recognised in several spellings, and writes only touch the lines they need.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
+import os
 import re
+import stat
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -168,7 +172,7 @@ def init(repo: Path | str, app: dict[str, Any]) -> dict[str, list[str]]:
         if p.exists():
             kept.append(name)
         else:
-            p.write_text(text)
+            _write_text(p, text)
             created.append(name)
     return {"created": created, "kept": kept, "folder": [str(d)]}
 
@@ -179,15 +183,46 @@ def _ensure(repo: Path | str, name: str, template: str) -> Path:
         if not Path(repo).expanduser().is_dir():
             raise RankwellError(f"Not a folder: {repo}")
         p.parent.mkdir(exist_ok=True)
-        p.write_text(template)
+        _write_text(p, template)
     return p
 
 
-def _read_text(p: Path) -> str:
+def _read_text(p: Path, missing_ok: bool = True) -> str:
+    """The file as UTF-8, read strictly. A missing file is "" (when missing_ok); a file that cannot be read or is
+    not valid UTF-8 raises RankwellError, so a later write never replaces text that was not read."""
     try:
-        return p.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return ""
+        return p.read_text(encoding="utf-8", errors="strict")
+    except FileNotFoundError:
+        if missing_ok:
+            return ""
+        raise RankwellError(f"Cannot read {p}: the file disappeared. Nothing was written.") from None
+    except UnicodeDecodeError as e:
+        raise RankwellError(f"Cannot read {p}: it is not valid UTF-8 text (byte {e.start}). Nothing was written; "
+                            "fix or re-save the file as UTF-8 and try again.") from e
+    except OSError as e:
+        raise RankwellError(f"Cannot read {p}: {e.strerror or e}. Nothing was written.") from e
+
+
+def _write_text(p: Path, text: str) -> None:
+    """Replace the file atomically: write a temp file in the same folder, then os.replace it over the original,
+    so a crash or full disk never leaves a half-written file."""
+    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=f".{p.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        with contextlib.suppress(OSError):
+            os.chmod(tmp, stat.S_IMODE(p.stat().st_mode) if p.exists() else 0o644)
+        os.replace(tmp, p)
+    except OSError as e:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise RankwellError(f"Cannot write {p}: {e.strerror or e}. The file was left as it was.") from e
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
 
 
 # Reading -------------------------------------------------------------------------------------------------------
@@ -199,9 +234,15 @@ def read(repo: Path | str) -> dict[str, Any]:
     out: dict[str, Any] = {"folder": str(d), "exists": d.is_dir(), "files": {}}
     if not d.is_dir():
         return {**out, "decisions": [], "progress": [], "open_items": [], "experiments": []}
+    errors: list[str] = []
     for p in sorted(d.iterdir()):
         if p.is_file() and p.suffix in (".md", ".toml"):
-            out["files"][p.name] = _read_text(p)
+            try:
+                out["files"][p.name] = _read_text(p)
+            except RankwellError as e:
+                errors.append(str(e).replace(" Nothing was written.", ""))
+    if errors:
+        out["errors"] = errors
     files = out["files"]
     progress = parse_notes(files.get("progress.md", ""))
     out["decisions"] = parse_notes(files.get("decisions.md", ""))
@@ -302,10 +343,10 @@ def note(repo: Path | str, kind: str, text: str, today: str | None = None) -> di
     day = today or _today()
     if kind == "decision":
         p = _ensure(repo, "decisions.md", DECISIONS_MD)
-        p.write_text(_insert_dated(_read_text(p), day, _bullet(text)))
+        _write_text(p, _insert_dated(_read_text(p, missing_ok=False), day, _bullet(text)))
         return {"file": str(p), "kind": kind, "date": day}
     p = _ensure(repo, "progress.md", PROGRESS_MD)
-    body = _read_text(p)
+    body = _read_text(p, missing_ok=False)
     closed = None
     if kind == "done":
         body, closed = _close_item(body, text)
@@ -315,7 +356,7 @@ def note(repo: Path | str, kind: str, text: str, today: str | None = None) -> di
         body = _insert_dated(body, day, lines)
     else:
         body = _insert_dated(body, day, _bullet(text, checkbox=kind == "todo"))
-    p.write_text(body)
+    _write_text(p, body)
     out: dict[str, Any] = {"file": str(p), "kind": kind, "date": day}
     if kind == "done":
         out["closed_item"] = closed
@@ -441,7 +482,7 @@ def open_experiment(repo: Path | str, hypothesis: str, change: str, metric: str,
         if not value.strip():
             raise RankwellError(f"An experiment needs a {name}.")
     p = _ensure(repo, "experiments.md", EXPERIMENTS_MD)
-    text = _read_text(p)
+    text = _read_text(p, missing_ok=False)
     eid = _next_id(parse_experiments(text))
     head = title.strip() if title and title.strip() else change.strip().splitlines()[0][:60]
     block = [f"## {eid}: {head}"] + [f"- {FIELD_LABELS[k]}: {_one_line(v)}" for k, v in (
@@ -455,7 +496,7 @@ def open_experiment(repo: Path | str, hypothesis: str, change: str, metric: str,
         new = [*lines[:at], *block, "", *lines[at:]]
     else:
         new = [*lines, "", *block] if lines else block
-    p.write_text("\n".join(new).rstrip("\n") + "\n")
+    _write_text(p, "\n".join(new).rstrip("\n") + "\n")
     note(repo, "progress", f"Opened {eid}: {head} (check after {check_after})", today=day)
     return next(e for e in experiments(repo) if e["id"] == eid)
 
@@ -489,7 +530,7 @@ def close_experiment(repo: Path | str, experiment_id: str, result: str, verdict:
     for key, value in updates.items():
         block = _set_field(block, key, value)
     new = [*lines[:s], *block, *lines[e:]]
-    p.write_text("\n".join(new).rstrip("\n") + "\n")
+    _write_text(p, "\n".join(new).rstrip("\n") + "\n")
     title = found[idx]["title"] or want
     note(repo, "progress", f"Closed {want}: {title} - {v}. {_one_line(result)}", today=day)
     return next(x for x in experiments(repo) if str(x["id"]).upper() == want)
@@ -504,10 +545,7 @@ def _set_field(block: list[str], key: str, value: str) -> list[str]:
         last_field = i
         if _field_key(f.group(1)) == key:
             prefix = line[: f.start(2)].rstrip() + " "
-            block[i] = (prefix + value).rstrip()
-            j = i + 1  # drop continuation lines of the old value
-            while j < len(block) and block[j].startswith(("  ", "\t")) and not FIELD_RE.match(block[j]):
-                del block[j]
+            block[i] = (prefix + value).rstrip()  # only the value line; indented hand-written lines below stay
             return block
     line = f"- {FIELD_LABELS[key]}: {value}".rstrip()
     at = last_field + 1 if last_field else len(block)

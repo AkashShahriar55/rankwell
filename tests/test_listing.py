@@ -169,6 +169,54 @@ def test_partial_failure_is_audited(db: Database, app: dict[str, Any], fake: Fak
     assert statuses == {"name": "error", "description": "ok"}
 
 
+def _apple_creates_version_loc(fake: FakeASC, monkeypatch: pytest.MonkeyPatch, **attrs: Any) -> None:
+    """The version localization POST answers 409 because Apple just added that language itself."""
+    import httpx
+
+    real = fake._post_loc
+
+    def post(b: dict[str, Any], p: Any, kind: str) -> Any:
+        if kind != "appStoreVersionLocalizations":
+            return real(b, p, kind)
+        fake.ver_loc("v2", "vl-de", "de-DE", **attrs)
+        return httpx.Response(409, json={"errors": [{"detail": "already exists"}]})
+
+    monkeypatch.setattr(fake, "_post_loc", post)
+
+
+def test_409_patches_an_empty_localization_apple_created(db: Database, app: dict[str, Any], fake: FakeASC,
+                                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    p = listing.plan_listing(db, listing.connect(), app, "de-DE", {"description": "Neu"})
+    _apple_creates_version_loc(fake, monkeypatch, description=None, keywords="kamera")
+    assert plans.apply(db, p["id"])["changed"] == ["Version 1.1: description"]
+    assert fake.writes()[-1][:2] == ("PATCH", "/v1/appStoreVersionLocalizations/vl-de")
+
+
+def test_409_refuses_when_apple_filled_a_planned_field(db: Database, app: dict[str, Any], fake: FakeASC,
+                                                       monkeypatch: pytest.MonkeyPatch) -> None:
+    p = listing.plan_listing(db, listing.connect(), app, "de-DE", {"description": "Neu"})
+    assert p["changes"][0]["current"] == ""
+    _apple_creates_version_loc(fake, monkeypatch, description="Kopie der englischen Beschreibung")
+    with pytest.raises(PlanError, match="created this localization meanwhile; make a new plan"):
+        plans.apply(db, p["id"])
+    assert not [w for w in fake.writes() if w[0] == "PATCH"]
+    assert db.value("SELECT status FROM audit_log") == "error"
+
+
+def test_vtuple_tolerates_odd_versions() -> None:
+    assert listing._vtuple("1.2.3") == (1, 2, 3)
+    assert listing._vtuple("1.2b") == (1,) and listing._vtuple("beta") == ()
+    assert listing._vtuple("1.2.0") == listing._vtuple("1.2")
+    assert listing._vtuple("1.10") > listing._vtuple("1.9")
+
+
+def test_create_version_with_non_numeric_live_version(db: Database, app: dict[str, Any], fake: FakeASC) -> None:
+    fake.versions = [v for v in fake.versions if v["id"] != "v2"]
+    fake.versions[0]["attributes"]["versionString"] = "1.0-beta"
+    p = listing.plan_create_version(db, listing.connect(), app, "1.1")
+    assert p["changes"][0]["current"] == "1.0-beta"
+
+
 def test_bundle_id_lookup_before_release(db: Database, fake: FakeASC) -> None:
     pre = apps.add(db, "Pre", bundle_id="com.example.app")
     assert listing.asc_app_id(listing.connect(), pre) == int(APP)

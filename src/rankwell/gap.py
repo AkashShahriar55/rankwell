@@ -149,14 +149,41 @@ def battle(db: Database, own: int | None, comp: dict[int, str], terms: list[str]
 
 # ---------------------------------------------------------------- complaint themes
 
+_SENTENCE = re.compile(r"[.!?;:\n\r]+")
+
+
 def _tokens(text: str) -> list[str]:
     return [w.strip("'") for w in re.findall(r"[a-z][a-z']+", text.lower())]
+
+
+def _sentences(text: str) -> list[str]:
+    """Sentences of a review (title and content are joined with ". ", so they never share a sentence)."""
+    return [s for s in _SENTENCE.split(text) if s.strip()]
+
+
+def _pattern(term: str) -> re.Pattern[str]:
+    """The term as the tokenizer saw it in the text: each word may carry the edge apostrophes _tokens stripped,
+    and words are separated by anything that is not a letter or apostrophe (so "users data" finds "users' data"
+    and "ios crashes" finds "iOS17 crashes")."""
+    words = [f"'*{re.escape(w)}'*" for w in term.split()]
+    return re.compile(r"(?<![a-z'])" + r"[^a-z']+".join(words) + r"(?![a-z'])", re.I)
+
+
+def _example(docs: list[str], term: str) -> str | None:
+    """A review that mentions the term: the first exact match, else the first containing the term's first word,
+    else None. Never raises."""
+    pat = _pattern(term)
+    found = next((d for d in docs if pat.search(d)), None)
+    if found is None:
+        first = _pattern(term.split()[0]) if term.split() else None
+        found = next((d for d in docs if first and first.search(d)), None)
+    return found
 
 
 def _quote(text: str, term: str) -> str:
     """About QUOTE_CHARS characters of the review around the first match of the term."""
     flat = " ".join(text.split())
-    m = re.search(rf"(?<![\w]){re.escape(term)}(?![\w])", flat, re.I)
+    m = _pattern(term).search(flat) or (_pattern(term.split()[0]).search(flat) if term.split() else None)
     if not m or len(flat) <= QUOTE_CHARS:
         return trim(flat, QUOTE_CHARS)
     start = max(0, m.start() - QUOTE_CHARS // 3)
@@ -164,10 +191,17 @@ def _quote(text: str, term: str) -> str:
     return ("…" if start > 0 else "") + piece + ("…" if start + QUOTE_CHARS < len(flat) else "")
 
 
+def _quoted(t: Data) -> str:
+    """': “quote”' for a theme, or '' when no review text could be quoted."""
+    return f": “{t['example']}”" if t.get("example") else ""
+
+
 def themes(texts: list[str], top: int = MAX_THEMES, min_reviews: int = MIN_THEME_REVIEWS) -> list[Data]:
     """Most frequent words and two-word phrases across reviews (counted once per review), with a quote each.
 
     A phrase replaces its words when it covers most of their mentions, so "dark mode" shows instead of "dark".
+    Phrases are built within one sentence only (never across the title/content join or a full stop). `example`
+    is None when no review can be quoted for the term.
     """
     docs = [t for t in texts if t and t.strip()]
     if not docs:
@@ -175,11 +209,15 @@ def themes(texts: list[str], top: int = MAX_THEMES, min_reviews: int = MIN_THEME
     uni: Counter[str] = Counter()
     bi: Counter[str] = Counter()
     for d in docs:
-        toks = _tokens(d)
-        keep = [w for w in toks if len(w) > 2 and w not in STOPWORDS]
-        uni.update(set(keep))
-        bi.update({f"{a} {b}" for a, b in itertools.pairwise(toks)
-                   if a not in STOPWORDS and b not in STOPWORDS and len(a) > 2 and len(b) > 2})
+        keep: set[str] = set()
+        pairs: set[str] = set()
+        for sentence in _sentences(d):
+            toks = _tokens(sentence)
+            keep.update(w for w in toks if len(w) > 2 and w not in STOPWORDS)
+            pairs.update(f"{a} {b}" for a, b in itertools.pairwise(toks)
+                         if a not in STOPWORDS and b not in STOPWORDS and len(a) > 2 and len(b) > 2)
+        uni.update(keep)
+        bi.update(pairs)
     picked: dict[str, int] = {p: n for p, n in bi.items() if n >= min_reviews}
     absorbed = {w for p, n in picked.items() for w in p.split() if n >= 0.6 * uni[w]}
     for w, n in uni.items():
@@ -188,8 +226,9 @@ def themes(texts: list[str], top: int = MAX_THEMES, min_reviews: int = MIN_THEME
     ranked = sorted(picked.items(), key=lambda kv: (-kv[1], -len(kv[0].split()), kv[0]))[:top]
     out = []
     for term, n in ranked:
-        example = next(d for d in docs if re.search(rf"(?<![\w]){re.escape(term)}(?![\w])", d, re.I))
-        out.append({"term": term, "reviews": n, "share": round(100 * n / len(docs)), "example": _quote(example, term)})
+        example = _example(docs, term)
+        out.append({"term": term, "reviews": n, "share": round(100 * n / len(docs)),
+                    "example": _quote(example, term) if example else None})
     return out
 
 
@@ -291,12 +330,12 @@ def _judge(own: Data, med: Data, comps: list[Data], fight: list[Data], charts: d
     if own_themes and own_themes[0]["reviews"] >= MIN_THEME_REVIEWS:
         t = own_themes[0]
         add(w, "reviews", f"Your low reviews keep mentioning “{t['term']}”",
-            f"{t['reviews']} of {low_own} reviews ≤3★: “{t['example']}”")
+            f"{t['reviews']} of {low_own} reviews ≤3★{_quoted(t)}")
     mine_terms = {t["term"] for t in own_themes}
     for t in comp_themes[:5]:
         if t["term"] not in mine_terms:
             opp.append({"area": "reviews", "point": f"Competitors' users complain about “{t['term']}”",
-                        "evidence": f"{t['reviews']} low reviews ({t['share']}%): “{t['example']}”"})
+                        "evidence": f"{t['reviews']} low reviews ({t['share']}%){_quoted(t)}"})
     return s, w, opp
 
 
@@ -337,7 +376,7 @@ def report(db: Database, app: App | str | int, country: str | None = None, *, as
     else:
         strengths, weaknesses = [], []
         opps = [{"area": "reviews", "point": f"Competitors' users complain about “{t['term']}”",
-                 "evidence": f"{t['reviews']} low reviews ({t['share']}%): “{t['example']}”"} for t in comp_themes[:5]]
+                 "evidence": f"{t['reviews']} low reviews ({t['share']}%){_quoted(t)}"} for t in comp_themes[:5]]
     for x in [own, *comps]:
         if x is not None:
             ch = charts.get(x["store_id"])
@@ -405,7 +444,7 @@ def _display(a: App, c: str, own: Data | None, comps: list[Data], med: Data, fig
     own_t = out["complaints"]["own"]
     for label, block in (("Competitor complaints", comp_t), ("Your complaints", own_t)):
         if block["themes"]:
-            items = [f"- **{t['term']}** — {t['reviews']} reviews ({t['share']}%): “{t['example']}”"
+            items = [f"- **{t['term']}** — {t['reviews']} reviews ({t['share']}%){_quoted(t)}"
                      for t in block["themes"]]
             lines.append(f"**{label}** ({block['reviews']} reviews ≤3★, last {REVIEW_DAYS} days)\n\n"
                          + "\n".join(items))

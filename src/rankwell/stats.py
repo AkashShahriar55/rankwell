@@ -10,6 +10,10 @@ Visibility (0-100) for one day, over the app's tracked keywords in one country:
                        · #51-200: 0.01 · not ranked: 0
     visibility       = 100 × Σ weight × bucket(rank) / Σ weight
 
+Both sums run over the keywords tracked *on that day*: the tracked keywords with a rank row for that day (a row
+with rank NULL counts as tracked but not ranked; a keyword without a row that day, e.g. added later, is left out).
+So adding or removing a keyword does not make past days jump.
+
 100 means #1 for every tracked keyword. It is an index of search presence, not a download estimate; it moves
 when ranks move on keywords that people type more often.
 """
@@ -210,7 +214,13 @@ def keyword_weight(score: Data | None) -> int:
 
 def visibility(db: Database, app: App | str | int, country: str | None = None, days: int = 30, *,
                store_id: int | None = None, as_of: str | None = None) -> Data:
-    """Daily visibility score (0-100, formula in the module docstring) and its trend."""
+    """Daily visibility score (0-100, formula in the module docstring) and its trend.
+
+    Each day's denominator is the weight of the keywords that have a rank row that day (rank NULL = tracked but
+    not ranked), not of every keyword tracked today. `days` must be at least 1.
+    """
+    if days < 1:
+        raise RankwellError(f"days must be at least 1 (got {days}).")
     a = resolve(db, app)
     c = country_of(a, country)
     sid = store_id or a.get("store_id")
@@ -228,29 +238,33 @@ def visibility(db: Database, app: App | str | int, country: str | None = None, d
                   f"AND term IN ({placeholders(terms)})", (sid, c, start, end, *terms))
     scores = latest_scores(db, c, terms)
     weights = {t: keyword_weight(scores.get(t)) for t in terms}
-    total = sum(weights.values())
     by: dict[str, dict[str, int | None]] = defaultdict(dict)
     for r in rows:
         by[r["date"]][r["term"]] = r["rank"]
     series: list[Data] = []
     for d in sorted(by):
         day = by[d]
+        total = sum(weights[t] for t in day)  # only the keywords tracked (with a rank row) that day
         points = sum(weights[t] * bucket(r) for t, r in day.items())
-        series.append({"date": d, "score": round(100 * points / total, 1),
-                       "ranked": sum(r is not None for r in day.values()),
+        series.append({"date": d, "score": round(100 * points / total, 1) if total else 0.0,
+                       "tracked": len(day), "ranked": sum(r is not None for r in day.values()),
                        "top10": sum(r is not None and r <= 10 for r in day.values())})
+    if not series:
+        return {**base, "end": end, "weights": weights,
+                "display": f"No visibility score: no ranks for {a['name']}'s tracked keywords in {c.upper()} "
+                           f"between {start} and {end}. {NO_COLLECTION}"}
     first, last = series[0], series[-1]
     week = [s for s in series if s["date"] <= days_ago(7, end)]
     trend = compare(last["score"], first["score"])
     out = {**base, "end": end, "series": series, "score": last["score"], "trend": trend,
            "change_7d": compare(last["score"], week[-1]["score"]) if week else None,
            "weights": weights,
-           "formula": "100 × Σ popularity × bucket(rank) / Σ popularity over tracked keywords"}
+           "formula": "100 × Σ popularity × bucket(rank) / Σ popularity over the keywords tracked that day"}
     spark = render.sparkline([s["score"] for s in series][-SPARK_POINTS:])
     out["display"] = (
         f"**Visibility** {a['name']} ({c.upper()}): **{last['score']}** / 100 on {end} "
         f"({render.delta(trend['change'])} since {first['date']})\n\n`{spark}`\n\n"
-        f"In the top 200 for {last['ranked']} of {len(terms)} keywords, top 10 for {last['top10']}. "
+        f"In the top 200 for {last['ranked']} of {last['tracked']} keywords, top 10 for {last['top10']}. "
         f"100 = #1 for every tracked keyword, weighted by popularity.")
     return out
 

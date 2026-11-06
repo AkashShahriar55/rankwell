@@ -31,11 +31,20 @@ def register(mcp: MCPServer) -> None:
 
     @mcp.tool()
     @safe
-    def build_start(app: str) -> dict[str, Any]:
-        """Start the app's build in the background (command from <repo>/.aso/release.toml, e.g. flutter build
-        ipa). Returns at once with the log path; follow it with build_status. Ask the user before starting."""
-        job = release.build_start(db(), apps.get(db(), app))
-        return {"job": job, "display": f"Build started (job {job['id']}): `{job['command']}`\n\nLog: {job['log_path']}"}
+    def build_start(app: str, confirmed: bool = False) -> dict[str, Any]:
+        """Build the app in the background with the shell command from <repo>/.aso/release.toml (e.g. flutter
+        build ipa). Two steps: first call it without confirmed; nothing runs, it returns the exact command, the
+        folder it runs in and the log path. Show those to the user and ask whether to run it. Only after the
+        user's yes call build_start(app, confirmed=True); it returns at once with the job and log path, follow
+        it with build_status."""
+        d = db()
+        result = release.build_start(d, apps.get(d, app), confirmed=confirmed)
+        if not confirmed:
+            return {**result, "display": f"Not started yet. This runs in `{result['cwd']}`:\n\n```\n"
+                                         f"{result['command']}\n```\n\nLog: {result['log_path']}\n\n"
+                                         "Ask the user; on yes call build_start(app, confirmed=True)."}
+        return {"started": True, "job": result,
+                "display": f"Build started (job {result['id']}): `{result['command']}`\n\nLog: {result['log_path']}"}
 
     @mcp.tool()
     @safe

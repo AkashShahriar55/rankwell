@@ -116,3 +116,69 @@ def test_hooks_json_shape() -> None:
     entry = data["hooks"]["SessionStart"][0]["hooks"][0]
     assert entry["type"] == "command" and entry["timeout"] <= 10
     assert "${CLAUDE_PLUGIN_ROOT}" in entry["command"] and entry["command"].endswith("rankwell hook session-start")
+
+
+def test_stdin_open_without_eof_does_not_block() -> None:
+    import os
+    import time
+
+    r, w = os.pipe()
+    try:
+        with os.fdopen(r, "r", closefd=False) as stream:
+            start = time.monotonic()
+            assert hook._stdin_json(stream) == {}  # caller keeps stdin open and sends nothing
+            assert time.monotonic() - start < 1
+            os.write(w, b'{"cwd": "/x"')
+            start = time.monotonic()
+            assert hook._stdin_json(stream) == {}  # incomplete JSON, still open: gives up at the deadline
+            assert time.monotonic() - start < 1
+    finally:
+        os.close(w)
+        os.close(r)
+
+
+def test_stdin_complete_json_returns_before_eof() -> None:
+    import os
+    import time
+
+    r, w = os.pipe()
+    try:
+        os.write(w, b'{"cwd": "/repo"}')
+        with os.fdopen(r, "r", closefd=False) as stream:
+            start = time.monotonic()
+            assert hook._stdin_json(stream, budget=5) == {"cwd": "/repo"}  # no waiting for EOF
+            assert time.monotonic() - start < 1
+    finally:
+        os.close(w)
+        os.close(r)
+
+
+def test_crashed_collector_row_is_not_running(spawned: list[bool]) -> None:
+    db = dbmod.Database()
+    apps.add(db, "Live App", store_id=111)
+    now = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    db.execute("INSERT INTO runs (kind, started_at, status) VALUES ('collect', ?, 'running')", (now,))
+    db.close()
+    (paths.home() / hook.COLLECT_LOCK).write_text("999 left behind\n")  # file exists, nobody holds it
+    text = context()
+    assert "running now" not in text and "started in the background" in text and spawned == [True]
+    db = dbmod.Database()
+    row = db.one("SELECT * FROM runs")
+    assert row and row["status"] == "failed" and "crashed" in json.loads(row["summary"])["note"]
+    db.close()
+
+
+def test_live_collector_is_running(spawned: list[bool]) -> None:
+    from rankwell import collect
+
+    assert hook.COLLECT_LOCK == collect.LOCK_NAME
+    db = dbmod.Database()
+    apps.add(db, "Live App", store_id=111)
+    db.execute("INSERT INTO runs (kind, started_at, status) VALUES ('collect', '2020-01-01T10:00:00Z', 'running')")
+    db.close()
+    with collect.lock():
+        text = context()
+    assert "a collection is running now" in text and spawned == []
+    db = dbmod.Database()
+    assert db.value("SELECT status FROM runs") == "running"
+    db.close()

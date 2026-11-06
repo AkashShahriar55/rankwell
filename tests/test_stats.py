@@ -76,6 +76,32 @@ def test_visibility_math(db: Database) -> None:
     assert "**6.4** / 100" in v["display"]
 
 
+def test_visibility_new_keyword_does_not_rewrite_history(db: Database) -> None:
+    a = seed(db)
+    before = stats.visibility(db, "Pill Pal", as_of=AS_OF)["series"]
+    apps.add_keywords(db, a["id"], ["dose log"], "us")  # tracked from today on: no rank rows on past days
+    db.upsert("ranks", [{"date": AS_OF, "country": "us", "term": "dose log", "store_id": OWN, "rank": 1}],
+              ["date", "country", "term", "store_id"])
+    v = stats.visibility(db, "Pill Pal", as_of=AS_OF)
+    assert v["series"][:-1] == before  # past days keep their denominator (155), no jump
+    last = v["series"][-1]
+    assert last["date"] == AS_OF and last["tracked"] == 1 and last["score"] == 100.0
+    assert "top 200 for 1 of 1 keywords" in v["display"]
+
+
+def test_visibility_no_rows_in_window_and_bad_days(db: Database) -> None:
+    a = apps.add(db, "Pill Pal", store_id=OWN, countries=["us"])
+    apps.add_keywords(db, a["id"], ["pill reminder"], "us")
+    # ranks exist for the app, but only for a keyword that is no longer tracked
+    db.upsert("ranks", [{"date": END, "country": "us", "term": "old term", "store_id": OWN, "rank": 3}],
+              ["date", "country", "term", "store_id"])
+    v = stats.visibility(db, a, as_of=AS_OF)
+    assert v["series"] == [] and "No visibility score" in v["display"]
+    for bad in (0, -3):
+        with pytest.raises(RankwellError, match="at least 1"):
+            stats.visibility(db, a, days=bad, as_of=AS_OF)
+
+
 def test_rank_history_moves(db: Database) -> None:
     seed(db)
     h = stats.rank_history(db, "pill pal", days=30, as_of=AS_OF)

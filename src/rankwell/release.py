@@ -4,11 +4,19 @@ Every step that changes App Store Connect (or uploads a build) is a plan: plan_*
 apply_plan re-reads it, refuses when it changed, writes, and audits. Nothing here deletes App Store
 Connect data. After a rejection the version goes back through its own review submission: the REJECTED
 item is marked resolved, then the submission is submitted again (a new submission is refused by Apple).
+
+Building runs a shell command from release.toml on the user's machine, so build_start is two-step: without
+confirmed=True it only returns the command, working directory and log path to show the user.
+
+Upload commands (`[upload] kind = "custom"`, or a fastlane command) may use `{ipa}` for the .ipa path. Rankwell
+inserts the path shell-quoted, so write `{ipa}` bare; `"{ipa}"` and `'{ipa}'` also work (the quotes around the
+placeholder are dropped before the quoted path goes in, so paths with spaces or quotes stay one argument).
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import glob
 import os
 import plistlib
 import re
@@ -169,15 +177,37 @@ def load(repo: Path) -> ReleaseConfig:
 
 # ------------------------------------------------------------------ App Store Connect reads
 
-def builds(asc: ASC, store_id: int, version: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
-    """Newest uploaded builds (of one app version when given), with processing state and export compliance."""
-    r = asc.get("/v1/builds", **{
-        "filter[app]": store_id, "sort": "-uploadedDate", "limit": limit,
+BUILD_PAGE = 200  # the most /v1/builds returns per page
+BUILD_PAGES = 10  # at most 2000 builds are read; an app version never has that many
+
+
+def builds(asc: ASC, store_id: int, version: str | None = None, limit: int = BUILD_PAGE,
+           max_pages: int = BUILD_PAGES) -> list[dict[str, Any]]:
+    """Uploaded builds, newest first (of one app version when given), with processing state and export compliance.
+
+    Every page is read (up to max_pages), so an older build of the version is never missed. With a version, the
+    list is also filtered server-side by the marketing version (filter[preReleaseVersion.version]; filter[version]
+    would be the build number), and again here.
+    """
+    params: dict[str, Any] = {
+        "filter[app]": store_id, "sort": "-uploadedDate", "limit": min(limit, BUILD_PAGE),
         "fields[builds]": "version,processingState,uploadedDate,usesNonExemptEncryption,expired,preReleaseVersion",
-        "include": "preReleaseVersion", "fields[preReleaseVersions]": "version"})
+        "include": "preReleaseVersion", "fields[preReleaseVersions]": "version"}
+    if version:
+        params["filter[preReleaseVersion.version]"] = version
+    r = asc.get("/v1/builds", **params)
+    data: list[dict[str, Any]] = list(r.get("data", []))
     pre = {p["id"]: p["attributes"].get("version") for p in r.get("included", [])}
+    seen: set[str] = set()
+    nxt = (r.get("links") or {}).get("next")
+    while nxt and nxt not in seen and len(seen) < max_pages - 1:
+        seen.add(nxt)
+        r = asc.get(nxt)  # the next link carries every parameter
+        data.extend(r.get("data", []))
+        pre.update({p["id"]: p["attributes"].get("version") for p in r.get("included", [])})
+        nxt = (r.get("links") or {}).get("next")
     out = []
-    for b in r.get("data", []):
+    for b in data:
         a = b["attributes"]
         rel = ((b.get("relationships", {}).get("preReleaseVersion") or {}).get("data") or {}).get("id")
         out.append({"id": b["id"], "build": a.get("version"), "version": pre.get(rel),
@@ -368,15 +398,27 @@ def _tail(path: Path, lines: int) -> list[str]:
         return f.read().decode(errors="replace").splitlines()[-lines:]
 
 
-def build_start(db: Database, app: App, spawn: Spawner | None = None) -> dict[str, Any]:
-    """Start the build command from release.toml in the app repo, detached, with output to a log file."""
+def _build_log(app: App) -> Path:
+    return paths.logs_dir() / f"build-{app['slug']}-{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+
+
+def build_start(db: Database, app: App, spawn: Spawner | None = None, *, confirmed: bool = False) -> dict[str, Any]:
+    """Start the build command from release.toml in the app repo, detached, with output to a log file.
+
+    Two steps, because it runs a shell command from a file in the repo: without confirmed=True nothing runs and
+    the result is {"started": False, "command", "cwd", "log_path", "kind"} to show the user (the log is named by
+    the start time). With confirmed=True it starts and returns the build_jobs row.
+    """
     repo = repo_of(app)
     cfg = load(repo)
     running = db.one("SELECT * FROM build_jobs WHERE app_id = ? AND status = 'running' ORDER BY id DESC LIMIT 1",
                      (app["id"],))
     if running and _refresh(db, running)["status"] == "running":
         raise RankwellError(f"A build is already running (job {running['id']}, log {running['log_path']}).")
-    log = paths.logs_dir() / f"build-{app['slug']}-{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+    log = _build_log(app)
+    if not confirmed:
+        return {"started": False, "command": cfg.build_command, "cwd": str(repo), "log_path": str(log),
+                "kind": cfg.build_kind}
     log.write_text(f"$ cd {repo}\n$ {cfg.build_command}\n")
     script = f"{cfg.build_command}\ncode=$?\necho \"{EXIT_MARK} $code\"\nexit $code\n"
     pid = (spawn or _spawn)(script, repo, log)
@@ -433,7 +475,10 @@ def find_ipa(repo: Path, cfg: ReleaseConfig, explicit: str | None = None) -> Pat
         return p
     if not cfg.ipa:
         raise RankwellError("Set [build] ipa = \"<glob>\" in .aso/release.toml or pass the .ipa path.")
-    found = [p for p in repo.glob(cfg.ipa) if p.is_file()]
+    pattern = os.path.expanduser(cfg.ipa)
+    # Path.glob refuses absolute patterns; glob.glob takes both (the repo part is escaped, the pattern is not)
+    full = pattern if os.path.isabs(pattern) else os.path.join(glob.escape(str(repo)), pattern)
+    found = [Path(p) for p in glob.glob(full, recursive=True) if Path(p).is_file()]
     if not found:
         raise RankwellError(f"No .ipa matches {cfg.ipa} in {repo}. Build first (build_start).")
     return max(found, key=lambda p: p.stat().st_mtime)
@@ -477,6 +522,13 @@ def _scrub(text: str, key: AscKey) -> str:
         if len(line.strip()) > 8:
             text = text.replace(line.strip(), "<hidden>")
     return text
+
+
+def upload_shell_command(template: str, ipa: Path) -> str:
+    """The upload command with {ipa} replaced by the shell-quoted path. Quotes the user put around the
+    placeholder ("{ipa}" or '{ipa}') are dropped first, so the path is quoted exactly once."""
+    bare = re.sub(r"""(["'])\{ipa\}\1""", "{ipa}", template)
+    return bare.replace("{ipa}", shlex.quote(str(ipa)))
 
 
 def upload_altool(ipa: Path, key: AscKey, run: Runner | None = None) -> tuple[int, str]:
@@ -540,7 +592,7 @@ def _apply_upload(db: Database, plan: plans.Plan) -> dict[str, Any]:
         assert asc is not None
         code, out = upload_altool(path, asc.key)
     else:
-        cmd = str(plan["upload_command"]).replace("{ipa}", shlex.quote(str(path)))
+        cmd = upload_shell_command(str(plan["upload_command"]), path)
         code, out = runner(["/bin/sh", "-c", cmd], Path(plan["repo"]))
         if asc:
             out = _scrub(out, asc.key)
@@ -650,9 +702,15 @@ def plan_review_info(db: Database, asc: ASC, app: App, values: dict[str, Any]) -
                         "target": {"kind": "appStoreReviewDetails", "id": rid}})
     if not changes:
         raise RankwellError("Nothing to change: App Review info already has these values.")
-    state = {"version": ev["id"], "detail": rid, "attrs": cur}
-    return plans.create(db, "review_info", app["id"], changes, plans.state_hash(state),
+    return plans.create(db, "review_info", app["id"], changes, plans.state_hash(_review_state(ev["id"], rid, cur)),
                         payload={"asc_app_id": sid, "version_id": ev["id"], "secret": secret})
+
+
+def _review_state(version_id: str, detail_id: str | None, attrs: dict[str, Any]) -> dict[str, Any]:
+    """The live state a review_info plan is checked against. Password fields are reduced to "is set": an
+    unsalted hash of a secret must not be stored in the plan."""
+    safe = {k: (bool(v) if "password" in k.lower() else v) for k, v in attrs.items()}
+    return {"version": version_id, "detail": detail_id, "attrs": safe}
 
 
 @plans.applier("review_info")
@@ -661,7 +719,7 @@ def _apply_review_info(db: Database, plan: plans.Plan) -> dict[str, Any]:
         asc = listing.connect()
         vid = plan["version_id"]
         rid, cur = review_detail(asc, vid)
-        plans.verify(plan, plans.state_hash({"version": vid, "detail": rid, "attrs": cur}))
+        plans.verify(plan, plans.state_hash(_review_state(vid, rid, cur)))
         attrs = {REVIEW_FIELDS[c["field"]]: c["new"] for c in plan["changes"] if c["field"] != "demo_account_password"}
         attrs.update(plan.get("secret") or {})
         if rid:

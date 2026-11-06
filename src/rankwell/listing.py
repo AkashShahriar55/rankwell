@@ -17,7 +17,7 @@ from typing import Any
 from . import plans, render
 from .apps import App
 from .db import Database
-from .errors import RankwellError, StoreError
+from .errors import PlanError, RankwellError, StoreError
 from .stores import asc as ascmod
 from .stores.asc import ASC, Resource
 from .util import now_utc
@@ -335,8 +335,14 @@ _PARENT = {"appInfoLocalizations": ("appInfo", "appInfos", "/v1/appInfos/{}/appI
                                             "/v1/appStoreVersions/{}/appStoreVersionLocalizations")}
 
 
-def _set_loc(asc: ASC, kind: str, loc_id: str | None, parent: str, locale: str, attrs: dict[str, Any]) -> str:
-    """PATCH the localization, or POST a new one for a new language."""
+def _set_loc(asc: ASC, kind: str, loc_id: str | None, parent: str, locale: str, attrs: dict[str, Any],
+             shown: dict[str, Any] | None = None) -> str:
+    """PATCH the localization, or POST a new one for a new language.
+
+    `shown` is what the plan showed as current per attribute. When the POST gets 409 because Apple created the
+    localization on its own meanwhile, it is re-read and patched only if none of the planned attributes holds a
+    value the user did not see (non-empty and different from `shown`); otherwise PlanError.
+    """
     if loc_id:
         asc.patch(f"/v1/{kind}/{loc_id}", {"data": {"type": kind, "id": loc_id, "attributes": attrs}})
         return loc_id
@@ -353,6 +359,12 @@ def _set_loc(asc: ASC, kind: str, loc_id: str | None, parent: str, locale: str, 
         cur = _by_locale(asc.get_all(list_path.format(parent))).get(locale)
         if not cur:
             raise
+        live_attrs = cur.get("attributes") or {}
+        clash = [a for a in attrs
+                 if (live_attrs.get(a) or "") and (live_attrs.get(a) or "") != ((shown or {}).get(a) or "")]
+        if clash:
+            raise PlanError("App Store Connect created this localization meanwhile; make a new plan "
+                            f"({locale}: {', '.join(clash)} already set there).") from e
         asc.patch(f"/v1/{kind}/{cur['id']}", {"data": {"type": kind, "id": cur["id"], "attributes": attrs}})
         return str(cur["id"])
 
@@ -367,26 +379,36 @@ def _apply_listing(db: Database, plan: plans.Plan) -> dict[str, Any]:
         groups.setdefault((t["kind"], t["id"], t["parent"]), []).append(c)
     done: list[str] = []
     errors: list[str] = []
+    refused = False
     for (kind, loc_id, parent), cs in groups.items():
         attrs = {FIELDS[c["field"]]: c["new"] for c in cs}
+        shown = {FIELDS[c["field"]]: c["current"] for c in cs}
         try:
-            rid = _set_loc(asc, kind, loc_id, parent, plan["locale"], attrs)
-        except StoreError as e:
+            rid = _set_loc(asc, kind, loc_id, parent, plan["locale"], attrs, shown)
+        except (StoreError, PlanError) as e:
             for c in cs:
                 plans.audit(db, plan["id"], "listing", f"{kind}/{loc_id or 'new'}", c["field"], c["current"],
                             c["new"], "error", str(e))
             errors.append(f"{', '.join(c['field'] for c in cs)}: {e}")
+            refused = refused or isinstance(e, PlanError)
             continue
         for c in cs:
             plans.audit(db, plan["id"], "listing", f"{kind}/{rid}", c["field"], c["current"], c["new"])
             done.append(f"{c['area']}: {c['field']}")
     if errors and not done:
+        if refused:
+            raise PlanError("Nothing was changed. " + " | ".join(errors))
         raise RankwellError("Nothing was changed. " + " | ".join(errors))
     return {"changed": done, "errors": errors}
 
 
 def _vtuple(v: str) -> tuple[int, ...]:
-    return tuple(int(p) for p in v.split("."))
+    """A version string as numbers for comparing: a non-numeric part counts as 0 ("1.2b" → (1, 0)) and trailing
+    zeros are dropped ("1.2.0" == "1.2"). Never raises."""
+    parts = [int(p) if re.fullmatch(r"\s*[0-9]+\s*", p) else 0 for p in str(v).split(".")]
+    while parts and parts[-1] == 0:
+        parts.pop()
+    return tuple(parts)
 
 
 def _versions_state(vs: list[dict[str, Any]]) -> list[tuple[Any, ...]]:

@@ -82,6 +82,29 @@ def test_themes_counts_once_per_review_and_prefers_phrases() -> None:
     assert gap.themes([]) == []
 
 
+def test_themes_never_span_sentences_and_quotes_never_raise() -> None:
+    # title and content are joined with ". ": "crashes. login" must not become the phrase "crashes login"
+    texts = [gap._text({"title": "Constant crashes", "content": "Login broken"}) for _ in range(3)]
+    t = gap.themes(texts)
+    assert "crashes login" not in {x["term"] for x in t}
+    assert {"constant crashes", "login broken"} <= {x["term"] for x in t}
+    assert all(x["example"] for x in t)
+    # apostrophes stripped by the tokenizer and digits between words still find a quote
+    texts = ["My users' data vanished", "users' data gone again", "Lost users' data", "iOS17 crashes daily",
+             "ios17 crashes", "iOS17 crashes all day"]
+    by = {x["term"]: x for x in gap.themes(texts)}
+    assert "users' data" in (by["users data"]["example"] or "")
+    assert "crashes" in (by["ios crashes"]["example"] or "")
+
+
+def test_theme_example_falls_back_and_never_raises() -> None:
+    docs = ["the 'cause' was bad", "nothing here"]
+    assert gap._example(docs, "cause") == docs[0]
+    assert gap._example(docs, "cause missing") == docs[0]  # first word only
+    assert gap._example(docs, "zebra stripes") is None
+    assert gap._quoted({"example": None}) == "" and gap._quoted({"example": "x"}) == ": “x”"
+
+
 def test_report_strengths_and_weaknesses(db: Database) -> None:
     seed(db)
     r = gap.report(db, "Pill Pal", as_of=AS_OF)

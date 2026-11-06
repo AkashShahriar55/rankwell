@@ -1,7 +1,8 @@
 """`rankwell hook session-start`: a short status for Claude when a session starts.
 
-Runs on every Claude Code session start, so it must be fast (no network, read-only database access, no
-migrations) and must never fail: any error still prints valid hook JSON and exits 0.
+Runs on every Claude Code session start, so it must be fast (no network, read-only database access apart from
+closing collect runs a crashed collector left `running`, no migrations) and must never fail: any error still
+prints valid hook JSON and exits 0.
 """
 
 from __future__ import annotations
@@ -13,14 +14,18 @@ import os
 import sqlite3
 import subprocess
 import sys
+import time
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 import click
 
 from .. import paths, state
 
 STALE_DAYS = 30
+STDIN_BUDGET = 0.3  # seconds; the hook input is tiny and arrives at once
+STDIN_MAX = 1_000_000
+COLLECT_LOCK = "collect.lock"  # collect.LOCK_NAME; not imported because collect pulls in the network stack
 LISTING_FIELDS = ("title", "subtitle", "description", "screenshots")
 SETUP_HINT = ("Rankwell (App Store Optimization assistant) is installed but has no apps yet. When the user wants "
               "ASO or App Store help, start with the aso-setup skill (the user can say \"set up Rankwell\").")
@@ -48,26 +53,62 @@ def emit(text: str) -> None:
         click.echo(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}))
 
 
-def _stdin_json() -> dict[str, Any]:
-    stream = sys.stdin
-    if stream is None or stream.isatty():
+def _stdin_json(stream: IO[str] | None = None, budget: float = STDIN_BUDGET) -> dict[str, Any]:
+    """The hook input JSON from stdin, read within `budget` seconds. Never blocks, even when the caller keeps
+    stdin open without sending anything: select + non-blocking reads until EOF, a complete JSON object or the
+    deadline, whichever comes first. Anything unreadable gives {}."""
+    stream = sys.stdin if stream is None else stream
+    if stream is None:
         return {}
     try:
-        import select
-
-        ready, _, _ = select.select([stream], [], [], 0.2)
-        if not ready:
+        if stream.isatty():
             return {}
-    except (ValueError, OSError, AttributeError, TypeError):
-        pass
+        fd = stream.fileno()
+    except (OSError, ValueError, AttributeError):
+        fd = -1
+    try:
+        raw = _read_fd(fd, budget) if fd >= 0 else stream.read(STDIN_MAX)  # in-memory streams cannot block
     except Exception:
         return {}
     try:
-        raw = stream.read(1_000_000)
         value = json.loads(raw) if raw.strip() else {}
-    except (ValueError, OSError):
+    except ValueError:
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def _read_fd(fd: int, budget: float) -> str:
+    import fcntl
+    import select
+
+    deadline = time.monotonic() + budget
+    chunks: list[bytes] = []
+    size = 0
+    flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+    fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+    try:
+        while size < STDIN_MAX:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                break
+            ready, _, _ = select.select([fd], [], [], left)
+            if not ready:
+                break
+            try:
+                chunk = os.read(fd, 65536)
+            except BlockingIOError:
+                continue
+            if not chunk:
+                break  # EOF
+            chunks.append(chunk)
+            size += len(chunk)
+            with contextlib.suppress(ValueError):
+                json.loads(b"".join(chunks))
+                break  # a complete JSON value: no need to wait for EOF
+    finally:
+        with contextlib.suppress(OSError):
+            fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+    return b"".join(chunks)[:STDIN_MAX].decode("utf-8", errors="replace")
 
 
 def spawn_catch_up() -> bool:
@@ -80,6 +121,44 @@ def spawn_catch_up() -> bool:
         subprocess.Popen([*cmd, "collect", "--catch-up"], stdin=subprocess.DEVNULL, stdout=out,  # noqa: S603
                          stderr=subprocess.STDOUT, start_new_session=True, close_fds=True)
     return True
+
+
+def collector_running() -> bool:
+    """Whether a collector holds the collection lock (same non-blocking flock probe as collect.is_locked).
+
+    A `runs` row says `running` also after a crash; only the lock, which the kernel drops when the process
+    dies, says whether a collector is really alive.
+    """
+    import fcntl
+
+    try:
+        fd = os.open(paths.home() / COLLECT_LOCK, os.O_RDONLY)
+    except OSError:
+        return False
+    try:
+        fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except OSError:
+        return True
+    finally:
+        os.close(fd)
+    return False
+
+
+def mark_stale_runs(ids: list[int]) -> None:
+    """Best effort: mark collect rows that no live collector owns as failed, with a note. The ids were read before
+    the lock was found free, so a collector starting now (its row comes after it takes the lock) is never hit.
+    This is the hook's only write; it never runs migrations and gives up after a short busy timeout."""
+    with contextlib.suppress(Exception):
+        conn = sqlite3.connect(paths.db_path(), timeout=0.5)
+        try:
+            now = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            note = "the collector stopped without finishing (crashed or killed); marked failed at session start"
+            with conn:
+                conn.executemany("UPDATE runs SET status = 'failed', finished_at = ?, summary = json_set("
+                                 "CASE WHEN json_valid(summary) THEN summary ELSE '{}' END, '$.note', ?) "
+                                 "WHERE id = ? AND status = 'running'", [(now, note, i) for i in ids])
+        finally:
+            conn.close()
 
 
 def _tables(conn: sqlite3.Connection) -> set[str]:
@@ -154,14 +233,15 @@ def _collection(conn: sqlite3.Connection, tables: set[str], day: dt.date) -> lis
         return []
     last = conn.execute("SELECT max(started_at) FROM runs WHERE kind = 'collect' AND status IN ('ok', 'partial')"
                         ).fetchone()[0]
-    running = conn.execute("SELECT started_at FROM runs WHERE kind = 'collect' AND status = 'running' "
-                           "ORDER BY id DESC LIMIT 1").fetchone()
+    stale = [r[0] for r in conn.execute("SELECT id FROM runs WHERE kind = 'collect' AND status = 'running'")]
+    running = collector_running()
+    if stale and not running:
+        mark_stale_runs(stale)  # left `running` by a crashed collector: no process holds the lock
     last_day = _local_date(last)
     if last_day == day:
         return []
-    started = _local_date(running[0]) if running else None
     when = f"last successful run {last_day.isoformat()}" if last_day else "no successful collection yet"
-    if started == day:
+    if running:
         return [f"Data collection: {when}; a collection is running now."]
     with contextlib.suppress(Exception):
         if spawn_catch_up():

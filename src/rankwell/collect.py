@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+import fcntl
 import gzip
 import hashlib
 import io
 import json
 import os
 import re
-import time
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
@@ -36,7 +36,6 @@ TOP_N = 10
 SEARCH_LIMIT = 200
 MAX_ERRORS = 25
 LOCK_NAME = "collect.lock"
-LOCK_STALE_SECONDS = 2 * 3600
 ASC_REPORTS = ("App Store Discovery and Engagement Standard", "App Downloads Standard")
 ASC_FRESH_DAYS = 5  # App Store Connect reports lag 1-2 days; older than this means data stopped flowing
 
@@ -56,6 +55,7 @@ def run(db: Database, app_refs: list[str] | None = None, on: dt.date | str | Non
     """Collect every active app (or the given ones) for one day. Returns the run summary."""
     day = on.isoformat() if isinstance(on, dt.date) else (on or today())
     targets = [apps.get(db, r) for r in app_refs] if app_refs else apps.list_apps(db)
+    mark_stale_runs(db)
     run_id = int(db.execute("INSERT INTO runs (kind, started_at) VALUES ('collect', ?)", (now_utc(),)).lastrowid or 0)
     ctx = _Context(db, day, asc or _default_asc, log or (lambda _msg: None))
     results: dict[str, dict[str, Any]] = {}
@@ -388,7 +388,7 @@ def sync_asc(db: Database, client: ASC, store_id: int) -> str:
         raise
     request_ids, created = ensure_requests(client, db, store_id)
     done = {r["id"] for r in db.all("SELECT id FROM asc_instances WHERE store_id = ?", (store_id,))}
-    new_instances, new_rows, dates = 0, 0, set()
+    new_instances, new_rows = 0, 0
     for rid in request_ids:
         for report in client.get_all(f"/v1/analyticsReportRequests/{rid}/reports"):
             name = report["attributes"]["name"]
@@ -402,15 +402,17 @@ def sync_asc(db: Database, client: ASC, store_id: int) -> str:
                 rows: list[dict[str, str]] = []
                 for seg in client.get_all(f"/v1/analyticsReportInstances/{inst['id']}/segments"):
                     rows.extend(segment_rows(seg["attributes"]["url"]))
-                dates |= save_report_rows(db, store_id, name, rows, inst["attributes"].get("processingDate"))
+                dates = save_report_rows(db, store_id, name, rows, inst["attributes"].get("processingDate"))
+                # Rebuild the days this file touches before marking it done: a later failure in this run must not
+                # leave a file marked done whose days never reached asc_daily.
+                if dates:
+                    recompute_daily(db, store_id, dates)
                 db.upsert("asc_instances", [{"id": inst["id"], "store_id": store_id, "report_name": name,
                                              "processing_date": inst["attributes"].get("processingDate"),
                                              "rows": len(rows)}], ["id"])
                 done.add(inst["id"])
                 new_instances += 1
                 new_rows += len(rows)
-    if dates:
-        recompute_daily(db, store_id, dates)
     msg = f"{new_instances} new report files, {new_rows} rows"
     if created:
         msg += f"; requested {', '.join(created)} reports (Apple needs 1-2 days before data appears)"
@@ -485,39 +487,95 @@ def lock_path() -> Path:
     return paths.home() / LOCK_NAME
 
 
+# Lock files this process holds right now (a second flock on the same file from this process would fail too,
+# but the set lets is_locked answer without touching the file).
+_held: set[Path] = set()
+
+
 @contextmanager
 def lock(path: Path | None = None) -> Iterator[None]:
-    """One collection at a time. A lock older than two hours is left over from a crash and is taken over."""
+    """One collection at a time: an exclusive flock held on the open lock file for the whole run.
+
+    The kernel drops the lock when the process exits, so a crashed collector never leaves a lock behind. The
+    holder's PID is written into the file for status display; the file itself is never deleted (deleting it
+    could let a second process lock a fresh file while the first still holds the old one).
+    """
     p = path or lock_path()
-    if not _acquire(p):
-        raise CollectBusy("A collection is already running. Try again when it finishes.")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(p, os.O_RDWR | os.O_CREAT, 0o644)
     try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        raise CollectBusy("A collection is already running. Try again when it finishes.") from None
+    key = p.resolve()
+    try:
+        with suppress(OSError):
+            os.ftruncate(fd, 0)
+            os.write(fd, f"{os.getpid()} {now_utc()}\n".encode())
+        _held.add(key)
         yield
     finally:
-        p.unlink(missing_ok=True)
+        _held.discard(key)
+        with suppress(OSError):
+            os.ftruncate(fd, 0)
+        os.close(fd)  # releases the flock
 
 
 def is_locked(path: Path | None = None) -> bool:
+    """Whether a process (this one or another) holds the collection lock. Probes with a non-blocking flock."""
     p = path or lock_path()
     try:
-        return time.time() - p.stat().st_mtime < LOCK_STALE_SECONDS
-    except FileNotFoundError:
+        if p.resolve() in _held:
+            return True
+        fd = os.open(p, os.O_RDONLY)
+    except OSError:
         return False
-
-
-def _acquire(p: Path) -> bool:
-    for _ in range(2):
-        try:
-            fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-        except FileExistsError:
-            if is_locked(p):
-                return False
-            p.unlink(missing_ok=True)
-            continue
-        with os.fdopen(fd, "w") as f:
-            f.write(f"{os.getpid()} {now_utc()}\n")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except OSError:
         return True
+    finally:
+        os.close(fd)  # closing also releases the probe lock when it was taken
     return False
+
+
+def lock_holder(path: Path | None = None) -> int | None:
+    """PID of the process holding the lock, or None when nobody holds it."""
+    p = path or lock_path()
+    if not is_locked(p):
+        return None
+    try:
+        first = p.read_text(encoding="utf-8", errors="replace").split()
+        return int(first[0]) if first else None
+    except (OSError, ValueError):
+        return None
+
+
+def mark_stale_runs(db: Database, path: Path | None = None) -> int:
+    """Close `running` collect rows left behind by a crashed collector. Returns how many were marked failed.
+
+    A live collector holds the lock for its whole run and inserts its row only after taking it, so rows read
+    *before* finding the lock free (or held by this process) cannot belong to a live collector. Call it before
+    deciding whether a collection is running, and before inserting a new run row.
+    """
+    p = path or lock_path()
+    rows = db.all("SELECT id, summary FROM runs WHERE kind = 'collect' AND status = 'running'")
+    if not rows or (p.resolve() not in _held and is_locked(p)):
+        return 0  # nothing left over, or another process is collecting right now
+    note = "the collector stopped without finishing (crashed or killed); marked failed by a later run"
+    for r in rows:
+        try:
+            summary = json.loads(r["summary"]) if r["summary"] else {}
+        except ValueError:
+            summary = {}
+        if not isinstance(summary, dict):
+            summary = {}
+        summary["note"] = note
+        db.execute("UPDATE runs SET status = 'failed', finished_at = ?, summary = ? "
+                   "WHERE id = ? AND status = 'running'",
+                   (now_utc(), json.dumps(summary, ensure_ascii=False, default=str), r["id"]))
+    return len(rows)
 
 
 def catch_up(db: Database, app_refs: list[str] | None = None, *, lock_file: Path | None = None,
@@ -528,6 +586,7 @@ def catch_up(db: Database, app_refs: list[str] | None = None, *, lock_file: Path
         return {"skipped": f"already collected for {day}", "date": day}
     try:
         with lock(lock_file):
+            mark_stale_runs(db, lock_file)
             if collected_on(db, day):  # another process finished while we waited for the lock
                 return {"skipped": f"already collected for {day}", "date": day}
             return run(db, app_refs, on=day, asc=asc, log=log)

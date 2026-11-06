@@ -1,7 +1,6 @@
 import gzip
 import json
 import os
-import time
 from pathlib import Path
 from typing import Any
 
@@ -216,25 +215,65 @@ def test_catch_up_and_lock(db: Database, store: FakeStore, tmp_path: Path) -> No
     _app(db)
     lock = tmp_path / "collect.lock"
     first = collect.catch_up(db, lock_file=lock, asc=lambda: None)
-    assert first["status"] == "ok" and not lock.exists()
+    assert first["status"] == "ok" and not collect.is_locked(lock)
     assert "already collected" in collect.catch_up(db, lock_file=lock, asc=lambda: None)["skipped"]
 
     db.execute("DELETE FROM runs")
-    lock.write_text("123")
-    assert collect.catch_up(db, lock_file=lock, asc=lambda: None)["skipped"] == "another collection is running"
-    old = time.time() - collect.LOCK_STALE_SECONDS - 60
-    os.utime(lock, (old, old))
+    with collect.lock(lock):  # a live collector holds the lock
+        assert collect.catch_up(db, lock_file=lock, asc=lambda: None)["skipped"] == "another collection is running"
+    lock.write_text("123 2026-01-01T00:00:00Z\n")  # a file left behind by a crash holds no lock
     assert collect.catch_up(db, lock_file=lock, asc=lambda: None)["status"] == "ok"
-    assert not lock.exists()
+    assert lock.exists()  # never deleted, only unlocked
 
 
 def test_lock_raises_when_busy(tmp_path: Path) -> None:
     lock = tmp_path / "x.lock"
     with collect.lock(lock):
         assert collect.is_locked(lock)
+        assert collect.lock_holder(lock) == os.getpid()
         with pytest.raises(collect.CollectBusy), collect.lock(lock):
             pass
-    assert not collect.is_locked(lock)
+        assert collect.is_locked(lock)  # the failed attempt did not release or delete the holder's lock
+    assert not collect.is_locked(lock) and collect.lock_holder(lock) is None
+
+
+def test_lock_held_by_another_process(db: Database, tmp_path: Path) -> None:
+    import subprocess
+    import sys
+
+    lock = tmp_path / "x.lock"
+    code = ("import fcntl, os, sys, time; fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT); "
+            "fcntl.flock(fd, fcntl.LOCK_EX); os.write(fd, str(os.getpid()).encode()); print('ok', flush=True); "
+            "sys.stdin.read()")
+    proc = subprocess.Popen([sys.executable, "-c", code, str(lock)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            text=True)
+    try:
+        assert proc.stdout and proc.stdout.readline().strip() == "ok"
+        assert collect.is_locked(lock) and collect.lock_holder(lock) == proc.pid
+        with pytest.raises(collect.CollectBusy), collect.lock(lock):
+            pass
+        db.execute("INSERT INTO runs (kind, started_at, status) VALUES ('collect', '2026-11-01T10:00:00Z', 'running')")
+        assert collect.mark_stale_runs(db, lock) == 0  # the other process is alive: its row stays running
+        assert db.value("SELECT status FROM runs") == "running"
+    finally:
+        proc.communicate("")
+    assert not collect.is_locked(lock)  # the kernel released it when the process exited
+    with collect.lock(lock):
+        pass
+
+
+def test_stale_running_row_is_marked_failed(db: Database, store: FakeStore, tmp_path: Path) -> None:
+    _app(db)
+    lock = tmp_path / "collect.lock"
+    db.execute("INSERT INTO runs (kind, started_at, status) VALUES ('collect', '2026-11-01T10:00:00Z', 'running')")
+    assert collect.mark_stale_runs(db, lock) == 1  # nobody holds the lock: the row was left by a crash
+    row = db.one("SELECT * FROM runs WHERE id = 1")
+    assert row and row["status"] == "failed" and row["finished_at"]
+    assert "crashed" in json.loads(row["summary"])["note"]
+    db.execute("UPDATE runs SET status = 'running', summary = NULL")
+    out = collect.catch_up(db, lock_file=lock, asc=lambda: None)
+    assert out["status"] == "ok"
+    assert [r["status"] for r in db.all("SELECT status FROM runs ORDER BY id")] == ["failed", "ok"]
 
 
 def test_missed_days(db: Database) -> None:
@@ -382,3 +421,30 @@ def test_run_uses_asc_for_live_apps(db: Database, store: FakeStore) -> None:
         out = collect.run(db, on="2026-11-01", asc=factory)
     assert calls == [OWN] and made == [1]
     assert out["apps"]["alpha"]["asc"].startswith("0 new") and out["apps"]["gamma"]["asc"] is None
+
+
+class TwoInstanceASC(FakeASC):
+    """Two new report files; the second one's segment download fails."""
+
+    def get_all(self, path: str, **params: Any) -> list[dict[str, Any]]:
+        if path.endswith("/instances"):
+            return [{"id": "inst-1", "attributes": {"processingDate": "2026-11-02"}},
+                    {"id": "inst-2", "attributes": {"processingDate": "2026-11-03"}}]
+        if path.endswith("/segments"):
+            n = path.split("/")[-2].rsplit("-", 1)[1]
+            return [{"attributes": {"url": f"https://example-bucket.s3.amazonaws.com/seg{n}"}}]
+        return super().get_all(path, **params)
+
+
+def test_sync_asc_partial_run_keeps_daily_totals(db: Database) -> None:
+    tsv = "Date\tEvent\tSource Type\tCounts\n2026-11-01\tImpression\tApp Store search\t12\n"
+    with respx.mock:
+        respx.get("https://example-bucket.s3.amazonaws.com/seg1").mock(
+            return_value=httpx.Response(200, content=gzip.compress(tsv.encode())))
+        respx.get("https://example-bucket.s3.amazonaws.com/seg2").mock(return_value=httpx.Response(403))
+        with pytest.raises(StoreError):
+            collect.sync_asc(db, TwoInstanceASC(), OWN)  # type: ignore[arg-type]
+    # inst-1 is marked done, so the next run skips it: its day must already be in asc_daily
+    assert db.value("SELECT count(*) FROM asc_instances") == 1
+    assert db.value("SELECT value FROM asc_daily WHERE date = '2026-11-01' AND metric = 'impressions' "
+                    "AND source = 'all'") == 12
