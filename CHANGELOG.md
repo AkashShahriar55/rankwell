@@ -8,3 +8,9 @@ All notable changes to this project are documented here. The format follows
 ### Added
 - Foundation: SQLite storage with migrations, Keychain secrets, App Store and App Store Connect clients,
   keyword research, terminal rendering, MCP server, `rankwell` CLI, plugin manifest.
+- Daily collection (ranks, snapshots, change detection, reviews, charts, App Store Connect analytics),
+  launchd schedule with catch-up, import from the original Supabase tracker.
+- Insights: today briefing, stats (ranks, visibility, funnel, ratings, charts), market gap report.
+- Listing check/plan/apply; release pipeline (build, upload, attach, review info, submit, resubmit after
+  rejection); rejection records. Plan/apply with audit log for every App Store Connect write.
+- `.aso/` state in app repos, ASO code audit, shipped knowledge rules, SessionStart hook, 10 skills.

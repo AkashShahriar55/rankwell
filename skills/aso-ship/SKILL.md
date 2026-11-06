@@ -24,8 +24,10 @@ If there is no editable version for the new number: `plan_create_version(app, ve
   fail upload or review).
 - `build_start(app)` and follow `build_status` until it finishes. On failure, show the end of the log and fix
   with the user.
-- `plan_upload(app)`: show what will be uploaded, ask, `apply_plan`. Then `build_status` until App Store
-  Connect has processed the build (this can take 10-30 minutes).
+- `plan_upload(app)`: show what will be uploaded, ask, `apply_plan`. A large upload can outlast a tool call:
+  if `apply_plan` times out, or the .ipa is over ~200 MB, run the upload in the terminal instead, in the
+  background, after the user's yes: `rankwell ship <app> --step upload --yes` (it uploads and waits for
+  Apple's processing). Then `release_check(app)` until the build shows as processed (10-30 minutes).
 
 ## 4. Attach, listing, review information
 - `plan_attach_build(app, ...)`: show, ask, `apply_plan`.
