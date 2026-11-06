@@ -455,10 +455,10 @@ def ipa_info(path: Path) -> dict[str, Any]:
             "bundle_id": str(info.get("CFBundleIdentifier", ""))}
 
 
-def altool_command(ipa: Path, key: AscKey) -> list[str]:
-    """altool reads the key from ./private_keys/AuthKey_<key id>.p8; the key itself is never an argument."""
-    return ["xcrun", "altool", "--upload-app", "-f", str(ipa.resolve()), "-t", "ios",
-            "--apiKey", key.key_id, "--apiIssuer", key.issuer_id]
+def altool_command(ipa: Path, key: AscKey, p8: Path) -> list[str]:
+    """`altool --upload-package` (the successor of the deprecated --upload-app); the key is passed as a file."""
+    return ["xcrun", "altool", "--upload-package", str(ipa.resolve()),
+            "--api-key", key.key_id, "--api-issuer", key.issuer_id, "--p8-file-path", str(p8)]
 
 
 def _run(cmd: list[str], cwd: Path) -> tuple[int, str]:
@@ -486,10 +486,11 @@ def upload_altool(ipa: Path, key: AscKey, run: Runner | None = None) -> tuple[in
         tmp.chmod(0o700)
         keys = tmp / "private_keys"
         keys.mkdir(mode=0o700)
-        fd = os.open(keys / f"AuthKey_{key.key_id}.p8", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        p8 = keys / f"AuthKey_{key.key_id}.p8"
+        fd = os.open(p8, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w") as f:
             f.write(key.private_key)
-        code, out = (run or runner)(altool_command(ipa, key), tmp)
+        code, out = (run or runner)(altool_command(ipa, key, p8), tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return code, _scrub(out, key)

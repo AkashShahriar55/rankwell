@@ -122,8 +122,9 @@ def test_altool_command_and_temp_key_cleanup(tmp_path: Path) -> None:
 
     code, out = release.upload_altool(ipa, k, fake_run)
     assert code == 0
-    assert seen["cmd"] == ["xcrun", "altool", "--upload-app", "-f", str(ipa.resolve()), "-t", "ios",
-                           "--apiKey", "KEY123", "--apiIssuer", "issuer-1"]
+    assert seen["cmd"] == ["xcrun", "altool", "--upload-package", str(ipa.resolve()), "--api-key", "KEY123",
+                           "--api-issuer", "issuer-1", "--p8-file-path",
+                           str(seen["cwd"] / "private_keys" / "AuthKey_KEY123.p8")]
     assert not any("PRIVATE KEY" in a for a in seen["cmd"])
     assert seen["key"] == k.private_key and seen["mode"] == 0o600 and seen["dir_mode"] == 0o700
     assert not seen["cwd"].exists()
@@ -272,7 +273,7 @@ def test_plan_upload_and_apply(db: Database, app: dict[str, Any], repo: Path, fa
 
     monkeypatch.setattr(release, "runner", fake_run)
     out = plans.apply(db, p["id"])
-    assert out["uploaded"] == "1.1 (8)" and ran[0][:3] == ["xcrun", "altool", "--upload-app"]
+    assert out["uploaded"] == "1.1 (8)" and ran[0][:3] == ["xcrun", "altool", "--upload-package"]
     row = db.one("SELECT * FROM audit_log WHERE kind = 'upload'")
     assert row is not None and row["new"] == "1.1 (8)" and row["status"] == "ok"
     assert not fake.writes()
