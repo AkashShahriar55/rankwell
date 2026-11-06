@@ -32,7 +32,8 @@ def build() -> MCPServer:
 
 
 def run() -> None:
-    from .. import db, plans
+    from .. import db, plans, schedule
 
     plans.sweep(db.get())  # expire old plans and drop any secret they still hold
+    schedule.record_root()  # keeps the daily job pointed at this plugin version
     build().run()

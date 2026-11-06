@@ -100,3 +100,14 @@ def test_cli_schedule(monkeypatch: pytest.MonkeyPatch, no_real_launchd: Path) ->
     assert "daily at 08:15, loaded, last exit 1" in r.output
     r = runner.invoke(main, ["schedule", "uninstall"])
     assert "removed" in r.output and not (no_real_launchd / "com.rankwell.collect.plist").exists()
+
+
+def test_launcher_follows_recorded_root(tmp_path: Path) -> None:
+    import subprocess
+
+    script = schedule.write_launcher(["/bin/echo", "fallback"])
+    out = subprocess.run([str(script), "collect"], capture_output=True, text=True, check=True).stdout
+    assert out.strip() == "fallback collect"
+    root = schedule.record_root()
+    text = script.read_text()
+    assert "plugin_root" in text and (root is None or (schedule.paths.home() / "plugin_root").read_text() == str(root))

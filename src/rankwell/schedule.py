@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import plistlib
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -80,6 +81,34 @@ def rankwell_command() -> list[str]:
     raise RankwellError("Cannot find the rankwell command. Install uv (brew install uv) and run from the plugin.")
 
 
+def record_root() -> Path | None:
+    """Remember where Rankwell runs from now. The plugin folder changes on every plugin update, so the launcher
+    reads this file instead of a path frozen at install time. Called by the MCP server at each start."""
+    root = repo_root()
+    if root:
+        (paths.home() / "plugin_root").write_text(str(root))
+    return root
+
+
+def write_launcher(fallback: list[str]) -> Path:
+    """A stable script for launchd: runs the Rankwell install recorded in plugin_root, else the fallback."""
+    uv = find_uv() or "uv"
+    home = paths.home()
+    script = home / "bin" / "rankwell"
+    script.parent.mkdir(exist_ok=True)
+    script.write_text(
+        "#!/bin/sh\n"
+        "# Written by `rankwell schedule install`: starts the current Rankwell, wherever the plugin lives now.\n"
+        f"ROOT=\"$(cat {shlex.quote(str(home / 'plugin_root'))} 2>/dev/null)\"\n"
+        'if [ -n "$ROOT" ] && [ -f "$ROOT/pyproject.toml" ]; then\n'
+        f'  exec {shlex.quote(uv)} run --quiet --project "$ROOT" rankwell "$@"\n'
+        "fi\n"
+        f'exec {" ".join(shlex.quote(c) for c in fallback)} "$@"\n'
+    )
+    script.chmod(0o755)
+    return script
+
+
 def build_plist(at: str, command: list[str], logs: Path) -> dict[str, Any]:
     hour, minute = parse_time(at)
     env = {"PATH": ":".join(dict.fromkeys([str(Path(command[0]).parent), *BASE_PATH.split(":")]))}
@@ -114,7 +143,10 @@ def install(at: str | None = None, *, agents_dir: Path | None = None, launchctl:
     agents = agents_dir or launch_agents_dir()
     launchctl = launchctl or run_launchctl
     when = at or config.load().collect_at
-    plist = build_plist(when, command or rankwell_command(), paths.logs_dir())
+    if command is None:
+        record_root()
+        command = [str(write_launcher(rankwell_command()))]
+    plist = build_plist(when, command, paths.logs_dir())
     agents.mkdir(parents=True, exist_ok=True)
     target = plist_path(agents)
     launchctl(["bootout", _domain(), str(target)])  # not loaded yet is fine
