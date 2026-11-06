@@ -52,3 +52,33 @@ def test_secret_is_dropped_when_plan_closes(db: Database) -> None:
     plans.sweep(db)
     row = plans.get(db, q["id"], pending_only=False)
     assert row["status"] == "expired" and "secret" not in row
+
+
+def test_plan_cannot_be_applied_twice_concurrently(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    import threading
+    import time
+
+    shared = Database(tmp_path / "plans.db")
+    writes: list[str] = []
+
+    @plans.applier("slow-kind")
+    def _slow(db: Database, plan: plans.Plan) -> dict:
+        time.sleep(0.2)
+        writes.append(plan["id"])
+        return {}
+
+    p = plans.create(shared, "slow-kind", None, [], "h")
+    errors: list[Exception] = []
+
+    def go() -> None:
+        try:
+            plans.apply(shared, p["id"])
+        except PlanError as e:
+            errors.append(e)
+
+    threads = [threading.Thread(target=go) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert writes == [p["id"]] and len(errors) == 2

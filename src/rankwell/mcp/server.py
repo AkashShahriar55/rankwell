@@ -32,4 +32,7 @@ def build() -> MCPServer:
 
 
 def run() -> None:
+    from .. import db, plans
+
+    plans.sweep(db.get())  # expire old plans and drop any secret they still hold
     build().run()

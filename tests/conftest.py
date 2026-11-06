@@ -6,7 +6,24 @@ from pathlib import Path
 import pytest
 
 from rankwell import db as dbmod
+from rankwell import secrets
 from rankwell.stores import http
+
+
+class MemoryKeyring:
+    """Stands in for the macOS Keychain so tests never read or write the developer's real one."""
+
+    def __init__(self) -> None:
+        self.items: dict[tuple[str, str], str] = {}
+
+    def get_password(self, service: str, name: str) -> str | None:
+        return self.items.get((service, name))
+
+    def set_password(self, service: str, name: str, value: str) -> None:
+        self.items[(service, name)] = value
+
+    def delete_password(self, service: str, name: str) -> None:
+        self.items.pop((service, name), None)
 
 
 @pytest.fixture(autouse=True)
@@ -17,6 +34,8 @@ def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[P
         monkeypatch.delenv(f"RANKWELL_ASC_{name}", raising=False)
     monkeypatch.setattr(http, "throttle", lambda bucket, interval: None)
     monkeypatch.setattr(dbmod, "_default", None)
+    ring = MemoryKeyring()
+    monkeypatch.setattr(secrets, "_keyring", lambda: ring)
     yield tmp_path
     http.close()
 

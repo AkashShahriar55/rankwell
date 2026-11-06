@@ -48,6 +48,7 @@ def ensure_file() -> Path:
 
 
 def load(path: Path | None = None) -> Config:
+    """Settings from config.toml. A switch is on only when it is a real TOML true (not the string "false")."""
     p = path or paths.config_path()
     if not p.exists():
         return Config()
@@ -61,5 +62,5 @@ def load(path: Path | None = None) -> Config:
         collect_at=str(collect.get("at", "11:00")),
         countries=[str(c).lower() for c in defaults.get("countries", ["us"])],
         knowledge_dirs=[Path(d).expanduser() for d in knowledge.get("dirs", [])],
-        create_report_requests=bool(analytics.get("create_report_requests", True)),
+        create_report_requests=analytics.get("create_report_requests", True) is True,
     )

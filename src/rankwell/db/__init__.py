@@ -1,9 +1,15 @@
-"""SQLite storage: one file, numbered migrations, WAL so the collector and the MCP server can share it."""
+"""SQLite storage: one file, numbered migrations, WAL so the collector and the MCP server can share it.
+
+Each thread gets its own connection (the MCP server runs tool calls in worker threads; a shared sqlite
+connection would mix up their reads and transactions). An in-memory database, used by tests, is one shared
+connection since separate connections would be separate databases.
+"""
 
 from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from importlib import resources
@@ -18,16 +24,39 @@ Row = dict[str, Any]
 class Database:
     def __init__(self, path: Path | str | None = None) -> None:
         self.path = str(path or paths.db_path())
-        self.conn = sqlite3.connect(self.path, timeout=30, isolation_level=None, check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA foreign_keys = ON")
-        self.conn.execute("PRAGMA busy_timeout = 30000")
-        if self.path != ":memory:":
-            self.conn.execute("PRAGMA journal_mode = WAL")
+        self._local = threading.local()
+        self._opened: list[sqlite3.Connection] = []
+        self._lock = threading.Lock()
+        self._shared = self._open() if self.path == ":memory:" else None
         migrate(self.conn)
 
+    def _open(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.path, timeout=30, isolation_level=None, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA busy_timeout = 30000")
+        if self.path != ":memory:":
+            conn.execute("PRAGMA journal_mode = WAL")
+        with self._lock:
+            self._opened.append(conn)
+        return conn
+
+    @property
+    def conn(self) -> sqlite3.Connection:
+        if self._shared is not None:
+            return self._shared
+        conn: sqlite3.Connection | None = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = self._open()
+            self._local.conn = conn
+        return conn
+
     def close(self) -> None:
-        self.conn.close()
+        with self._lock:
+            for conn in self._opened:
+                conn.close()
+            self._opened.clear()
+        self._local = threading.local()
 
     def all(self, sql: str, params: Any = ()) -> list[Row]:
         return [dict(r) for r in self.conn.execute(sql, params)]

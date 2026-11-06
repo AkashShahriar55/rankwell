@@ -59,6 +59,7 @@ def create(db: Database, kind: str, app_id: int | None, changes: list[dict[str, 
 
 
 def get(db: Database, plan_id: str, pending_only: bool = True) -> Plan:
+    sweep(db)
     row = db.one("SELECT * FROM plans WHERE id = ?", (plan_id,))
     if not row:
         raise PlanError(f"No plan '{plan_id}'. Make a new plan.")
@@ -108,6 +109,11 @@ def apply(db: Database, plan_id: str) -> dict[str, Any]:
     fn = _appliers.get(plan["kind"])
     if fn is None:
         raise PlanError(f"No applier for plan kind '{plan['kind']}'.")
+    # Claim the plan atomically so two calls can never apply it twice.
+    claimed = db.execute("UPDATE plans SET status = 'applying' WHERE id = ? AND status = 'pending' AND expires_at >= ?",
+                         (plan_id, now_utc())).rowcount
+    if claimed != 1:
+        raise PlanError(f"Plan '{plan_id}' is already being applied or is no longer pending; make a new plan.")
     try:
         result = fn(db, plan)
     except PlanError:
