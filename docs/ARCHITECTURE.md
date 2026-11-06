@@ -115,7 +115,10 @@ Every action that changes something outside the user's Mac is two steps:
 2. `apply_plan(plan_id)` re-reads the live state, refuses when its hash changed, applies, records each
    change in `audit_log`, and marks the plan applied.
 
-Skills tell Claude to show the plan as a table and ask the user before applying. Submitting for review
+Skills tell Claude to show the plan as a table and ask the user before applying.
+
+One write is automatic: App Store Connect analytics need report requests per app, and the collector
+creates them once (audited; off with `[analytics] create_report_requests = false`). Submitting for review
 and uploading a build are separate plans. Nothing deletes App Store Connect data.
 
 ## Release pipeline

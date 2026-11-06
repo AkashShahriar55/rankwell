@@ -21,6 +21,11 @@ at = "11:00"
 [defaults]
 countries = ["us"]
 
+[analytics]
+# App Store Connect analytics need report requests on each app. When true, the collector creates them once
+# (the only automatic write Rankwell makes; it is recorded in the audit log). Apple needs 1-2 days to start.
+create_report_requests = true
+
 [knowledge]
 # Extra folders of your own ASO notes (markdown). Skills read them after the shipped rules.
 dirs = []
@@ -32,6 +37,7 @@ class Config:
     collect_at: str = "11:00"
     countries: list[str] = field(default_factory=lambda: ["us"])
     knowledge_dirs: list[Path] = field(default_factory=list)
+    create_report_requests: bool = True
 
 
 def ensure_file() -> Path:
@@ -50,8 +56,10 @@ def load(path: Path | None = None) -> Config:
     collect = raw.get("collect", {})
     defaults = raw.get("defaults", {})
     knowledge = raw.get("knowledge", {})
+    analytics = raw.get("analytics", {})
     return Config(
         collect_at=str(collect.get("at", "11:00")),
         countries=[str(c).lower() for c in defaults.get("countries", ["us"])],
         knowledge_dirs=[Path(d).expanduser() for d in knowledge.get("dirs", [])],
+        create_report_requests=bool(analytics.get("create_report_requests", True)),
     )
