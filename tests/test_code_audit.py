@@ -183,3 +183,12 @@ def test_name_match() -> None:
 def test_not_a_folder(tmp_path: Path) -> None:
     with pytest.raises(RankwellError):
         code_audit.audit(tmp_path / "nope")
+
+
+def test_spanish_todo_is_not_a_placeholder(tmp_path: Path) -> None:
+    (tmp_path / "pubspec.yaml").write_text("name: x\n")
+    l10n = tmp_path / "lib" / "l10n"
+    l10n.mkdir(parents=True)
+    (l10n / "app_es.arb").write_text('{"viewAll": "Ver todo", "hint": "TODO write this"}\n')
+    found = [f for f in code_audit.audit(tmp_path)["findings"] if f["check"].startswith("placeholder")]
+    assert len(found) == 1 and "TODO write this" in (found[0].get("evidence") or "")

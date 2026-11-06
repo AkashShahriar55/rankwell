@@ -205,8 +205,9 @@ PRODUCT_WORD_RE = re.compile(r"(pro|premium|plus|month|year|annual|week|lifetime
                              r"tip|remove_?ads|noads|full|vip)", re.I)
 FILE_LIKE_RE = re.compile(r"\.(png|jpe?g|gif|webp|json|dart|swift|js|ts|tsx|ttf|otf|mp3|mp4|wav|svg|plist|html|"
                           r"css|txt|md|arb|lottie|riv)$", re.I)
-PLACEHOLDER_RE = re.compile(r"lorem ipsum|\bTODO\b|\bFIXME\b|\bTBD\b|\bXXX+\b|placeholder text|your text here|"
-                            r"sample text|\basdf\b", re.I)
+# Markers are matched in capitals only: "todo" is an ordinary word in Spanish and Portuguese ("Ver todo").
+PLACEHOLDER_RE = re.compile(r"(?i:lorem ipsum|placeholder text|your text here|sample text|\basdf\b)|"
+                            r"\bTODO\b|\bFIXME\b|\bTBD\b|\bXXX+\b")
 UI_CTX_RE = re.compile(r"Text\(|Label\(|Button\(|\b(title|subtitle|label|message|content|description|hint)\s*:|"
                        r"labelText|hintText|placeholder|navigationTitle|alert|SnackBar|Tooltip|<Text|\btr\(|"
                        r"NSLocalizedString|String\(localized", re.I)
@@ -859,7 +860,7 @@ class _Audit:
         files += [f for f in self.repo.ext(".json") if any(p in ("locales", "i18n", "translations", "lang", "l10n")
                                                           for p in f.split("/")[:-1])]
         hits = list(self.repo.grep(files, PLACEHOLDER_RE))
-        literal = re.compile(r"[\"'][^\"'\n]*(lorem ipsum|\bTODO\b|\bFIXME\b|\bTBD\b)[^\"'\n]*[\"']", re.I)
+        literal = re.compile(r"[\"'][^\"'\n]*((?i:lorem ipsum)|\bTODO\b|\bFIXME\b|\bTBD\b)[^\"'\n]*[\"']")
         for lang in ("swift", "dart", "js"):
             for f, n, line in self.repo.grep(self.repo.code(lang), literal):
                 code = re.sub(r"\s//\s.*$", "", line)
