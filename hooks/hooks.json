@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --quiet --project \"${CLAUDE_PLUGIN_ROOT}\" rankwell hook session-start",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
