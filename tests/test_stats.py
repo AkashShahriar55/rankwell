@@ -194,3 +194,11 @@ def test_metric_dispatch_and_concept_app(db: Database) -> None:
         assert "not on the App Store yet" in out["display"]
     with pytest.raises(RankwellError, match="Unknown metric"):
         stats.metric(db, a, "downloads")
+
+
+def test_keyword_weight_unknown_vs_never_suggested() -> None:
+    from rankwell import stats as st
+
+    assert st.keyword_weight(None) == st.DEFAULT_POPULARITY
+    assert st.keyword_weight({"popularity": None, "suggested_after_chars": None}) == st.MIN_POPULARITY
+    assert st.keyword_weight({"popularity": 80}) == 80

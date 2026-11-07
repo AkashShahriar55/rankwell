@@ -20,7 +20,9 @@ Rules:
 - Never invent numbers. Say when data is missing and how to get it (e.g. the collection has not run yet).
 - Anything that changes App Store Connect or Google Play is two steps: a plan_* tool returns a plan with current → new
   values; show it, ask the user, and only then call apply_plan with its id.
-- Popularity is a proxy from autocomplete, not search volume; compare suggested_after_chars across lengths.
+- Popularity is a proxy from autocomplete (letters typed before the term is suggested, fair across lengths;
+  None = unknown), not search volume. google_demand is the same idea on Google; compare it only with itself.
+- Download estimates are estimates: always give the range and the number of data points.
 """
 
 

@@ -206,9 +206,11 @@ def bucket(rank: int | None) -> float:
 
 
 def keyword_weight(score: Data | None) -> int:
-    pop = (score or {}).get("popularity")
-    if pop is None:
+    if not score:  # never scored: assume average
         return DEFAULT_POPULARITY
+    pop = score.get("popularity")
+    if pop is None:  # scored, never suggested by autocomplete: rarely searched
+        return MIN_POPULARITY
     return max(MIN_POPULARITY, int(pop))
 
 
