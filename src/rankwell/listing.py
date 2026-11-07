@@ -143,8 +143,8 @@ def check(fields: Mapping[str, str | None], tracked_keywords: Iterable[str] = ()
 
     indexed = set(where)
     # Without any searchable field there is nothing to judge coverage against (e.g. a promo-text-only change).
-    terms = dict.fromkeys(k.strip().lower() for k in tracked_keywords if k.strip())
-    missing = [t for t in terms if not all(w in indexed or w in STOPWORDS for w in _words(t))
+    wanted = dict.fromkeys(k.strip().lower() for k in tracked_keywords if k.strip())
+    missing = [t for t in wanted if not all(w in indexed or w in STOPWORDS for w in _words(t))
                ] if indexed_vals.keys() & set(INDEXED) else []
     if missing:
         more = f" (+{len(missing) - 15} more)." if len(missing) > 15 else "."
