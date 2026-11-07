@@ -278,3 +278,19 @@ def test_several_languages_stale_one_refuses_all(db: Database, app: dict[str, An
     with pytest.raises(PlanError):
         plans.apply(db, p["id"])
     assert not fake.writes()
+
+
+def test_check_uses_live_fields_for_coverage() -> None:
+    live = {"name": "Snap: AI Photo Enhancer", "subtitle": "Restore old photos", "keywords": "retro,vintage"}
+    promo_only = listing.check({"promotional_text": "New looks"}, ["ai photo enhancer", "retro filter"])
+    assert promo_only["uncovered"] == []  # nothing searchable given: no false "uncovered" list
+    r = listing.check({"promotional_text": "New looks"}, ["ai photo enhancer", "retro filter"], context=live)
+    assert r["uncovered"] == ["retro filter"]
+    assert [x["field"] for x in r["lengths"]] == ["promotional_text"]  # limits only for the changed field
+    dup = listing.check({"keywords": "photo,sharpen"}, [], context=live)
+    assert any("'photo' is in" in t["message"] for t in dup["tips"])
+
+
+def test_plan_keeps_live_indexed_fields(db: Database, app: dict[str, Any], fake: FakeASC) -> None:
+    p = listing.plan_listing(db, listing.connect(), app, "en-US", {"promotional_text": "New!"})
+    assert p["live_indexed"]["name"] == "Snap" and p["live_indexed"]["keywords"] == "camera,photo"

@@ -78,8 +78,8 @@ def register(mcp: MCPServer) -> None:
         want = dict(fields) if fields else listing.draft(db(), a["id"], locale)
         if not want:
             raise RankwellError(f"No fields given and no draft for {locale} (listing_draft_save).")
-        result = listing.check(want, _tracked(a), a.get("genre_id"))
         plan = listing.plan_listing(db(), listing.connect(), a, locale, dict(want))
+        result = listing.check(want, _tracked(a), a.get("genre_id"), context=plan.get("live_indexed"))
         out = listing.present(plan)
         if result["problems"] or result["tips"]:
             out["check"] = result
@@ -103,8 +103,10 @@ def register(mcp: MCPServer) -> None:
                     raise RankwellError(f"No draft for {loc} (listing_draft_save).")
         if not want:
             raise RankwellError("Give by_locale, or locales that have saved drafts.")
-        problems = {loc: listing.check(f, _tracked(a), a.get("genre_id")) for loc, f in want.items()}
         plan = listing.plan_listing_locales(db(), listing.connect(), a, want)
+        live = plan.get("live_indexed") or {}
+        problems = {loc: listing.check(f, _tracked(a), a.get("genre_id"), context=live.get(loc))
+                    for loc, f in want.items()}
         out = listing.present(plan)
         flagged = {loc: r for loc, r in problems.items() if r["problems"] or r["tips"]}
         if flagged:

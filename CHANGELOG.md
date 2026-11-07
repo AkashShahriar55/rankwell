@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-08
+
+### Fixed
+- Listing checks during a plan count the live name, subtitle and keyword field: planning only the promotional
+  text no longer lists every tracked keyword as uncovered, and repeats against the live fields are caught.
+
 ## [0.2.1] - 2026-11-07
 
 ### Added

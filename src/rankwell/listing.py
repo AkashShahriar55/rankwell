@@ -83,11 +83,15 @@ def _plural_pairs(words: Iterable[str]) -> list[tuple[str, str]]:
 
 
 def check(fields: Mapping[str, str | None], tracked_keywords: Iterable[str] = (),
-          genre_id: int | None = None) -> dict[str, Any]:
-    """Problems (must fix) and tips (wasted characters, missed keywords) for a set of listing fields."""
+          genre_id: int | None = None, context: Mapping[str, str | None] | None = None) -> dict[str, Any]:
+    """Problems (must fix) and tips (wasted characters, missed keywords) for a set of listing fields.
+
+    `context` is the rest of the listing (usually the live one): its name, subtitle and keyword field count for
+    cross-field repeats and keyword coverage, but limits and problems are only reported for `fields`."""
     problems: list[dict[str, str]] = []
     tips: list[dict[str, str]] = []
     vals = {k: v for k, v in fields.items() if v is not None}
+    indexed_vals = {**{k: v for k, v in (context or {}).items() if v and k in INDEXED}, **vals}
     lengths = []
     for k, v in vals.items():
         if k in LIMITS:
@@ -99,6 +103,8 @@ def check(fields: Mapping[str, str | None], tracked_keywords: Iterable[str] = ()
 
     kw = vals.get("keywords")
     kw_words: list[str] = []
+    if kw is None and indexed_vals.get("keywords"):  # unchanged keyword field: still counts for coverage
+        kw_words = [w for t in _keyword_terms(indexed_vals["keywords"]) for w in _words(t)]
     if kw is not None:
         spaces = len(re.findall(r"\s+,|,\s+", kw))
         if spaces:
@@ -121,8 +127,8 @@ def check(fields: Mapping[str, str | None], tracked_keywords: Iterable[str] = ()
 
     where: dict[str, list[str]] = {}
     for f in INDEXED:
-        if vals.get(f):
-            ws = kw_words if f == "keywords" else _words(vals[f])
+        if indexed_vals.get(f):
+            ws = kw_words if f == "keywords" else _words(indexed_vals[f])
             for w in dict.fromkeys(ws):
                 if w not in STOPWORDS:
                     where.setdefault(w, []).append(f)
@@ -136,8 +142,10 @@ def check(fields: Mapping[str, str | None], tracked_keywords: Iterable[str] = ()
                      "message": f"Both '{single}' and '{plural}': one form is usually enough."})
 
     indexed = set(where)
-    missing = [t for t in dict.fromkeys(k.strip().lower() for k in tracked_keywords if k.strip())
-               if not all(w in indexed or w in STOPWORDS for w in _words(t))]
+    # Without any searchable field there is nothing to judge coverage against (e.g. a promo-text-only change).
+    terms = dict.fromkeys(k.strip().lower() for k in tracked_keywords if k.strip())
+    missing = [t for t in terms if not all(w in indexed or w in STOPWORDS for w in _words(t))
+               ] if indexed_vals.keys() & set(INDEXED) else []
     if missing:
         more = f" (+{len(missing) - 15} more)." if len(missing) > 15 else "."
         tips.append({"field": "keywords", "message": "Tracked keywords not covered by name, subtitle or keyword "
@@ -285,7 +293,11 @@ def plan_listing(db: Database, asc: ASC, app: App, locale: str, fields: Mapping[
         raise RankwellError("Nothing to change: App Store Connect already has these values."
                             + (" " + " ".join(notes) if notes else ""))
     return plans.create(db, "listing", app["id"], changes, plans.state_hash(cur),
-                        payload={"asc_app_id": sid, "locale": locale}, notes=notes)
+                        payload={"asc_app_id": sid, "locale": locale, "live_indexed": _indexed(cur)}, notes=notes)
+
+
+def _indexed(cur: dict[str, Any]) -> dict[str, str]:
+    return {k: v for k, v in cur["fields"].items() if k in INDEXED and v}
 
 
 def plan_listing_locales(db: Database, asc: ASC, app: App,
@@ -308,7 +320,8 @@ def plan_listing_locales(db: Database, asc: ASC, app: App,
         raise RankwellError("Nothing to change: App Store Connect already has these values in every language."
                             + (" " + " ".join(notes) if notes else ""))
     return plans.create(db, "listing", app["id"], changes, plans.state_hash(state),
-                        payload={"asc_app_id": sid, "locales": list(by_locale)}, notes=notes)
+                        payload={"asc_app_id": sid, "locales": list(by_locale),
+                                 "live_indexed": {loc: _indexed(cur) for loc, cur in state.items()}}, notes=notes)
 
 
 def _check_fields(fields: Mapping[str, str | None], locale: str | None = None) -> dict[str, str]:
