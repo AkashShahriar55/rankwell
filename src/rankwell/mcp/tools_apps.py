@@ -30,8 +30,10 @@ def register(mcp: MCPServer) -> None:
     @mcp.tool()
     @safe
     def add_app(name: str, store_url_or_id: str | None = None, bundle_id: str | None = None,
-                repo_path: str | None = None, countries: list[str] | None = None) -> dict[str, Any]:
-        """Track one of the user's own apps. Leave store_url_or_id empty for an app that is not released yet."""
+                repo_path: str | None = None, countries: list[str] | None = None,
+                play_package: str | None = None) -> dict[str, Any]:
+        """Track one of the user's own apps. Leave store_url_or_id empty for an app that is not released yet.
+        play_package is its Google Play package name (e.g. com.example.app) when it is also on Play."""
         store_id = appstore.store_id_from(store_url_or_id) if store_url_or_id else None
         genre = None
         if store_id:
@@ -40,15 +42,16 @@ def register(mcp: MCPServer) -> None:
                 genre = int(found["primaryGenreId"]) if found.get("primaryGenreId") else None
                 bundle_id = bundle_id or found.get("bundleId")
         a = apps.add(db(), name, store_id=store_id, bundle_id=bundle_id, repo_path=repo_path,
-                     countries=countries, genre_id=genre)
+                     countries=countries, genre_id=genre, play_package=play_package)
         return {"app": a}
 
     @mcp.tool()
     @safe
     def update_app(app: str, name: str | None = None, store_url_or_id: str | None = None,
                    bundle_id: str | None = None, repo_path: str | None = None,
-                   countries: list[str] | None = None) -> dict[str, Any]:
-        """Change an app's name, App Store link (e.g. when it goes live), bundle id, repo path or countries."""
+                   countries: list[str] | None = None, play_package: str | None = None) -> dict[str, Any]:
+        """Change an app's name, App Store link (e.g. when it goes live), bundle id, repo path, countries or Google
+        Play package name."""
         a = apps.get(db(), app)
         fields: dict[str, Any] = {}
         if name:
@@ -59,6 +62,8 @@ def register(mcp: MCPServer) -> None:
             fields["bundle_id"] = bundle_id
         if repo_path:
             fields["repo_path"] = repo_path
+        if play_package:
+            fields["play_package"] = play_package.strip()
         a = apps.update(db(), a["id"], **fields)
         if countries:
             apps.set_countries(db(), a["id"], countries)

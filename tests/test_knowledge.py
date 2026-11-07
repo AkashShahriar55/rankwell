@@ -13,7 +13,7 @@ SHIPPED_TOPICS = {"keywords", "metadata", "screenshots", "ratings-reviews", "con
 TOOLS = {t.name for t in asyncio.run(server.build().list_tools())}
 # Skills every release must ship; new ones are fine.
 SKILLS = {"aso-setup", "aso-today", "aso-gap", "aso-keywords", "aso-listing", "aso-stats", "aso-code-audit",
-          "aso-ship", "aso-review-fix", "aso-experiment", "aso-reviews"}
+          "aso-ship", "aso-review-fix", "aso-experiment", "aso-reviews", "aso-play"}
 
 
 @pytest.fixture(autouse=True)

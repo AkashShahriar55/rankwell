@@ -48,21 +48,22 @@ def _decorate(db: Database, a: App) -> App:
 
 def add(db: Database, name: str, *, store_id: int | None = None, bundle_id: str | None = None,
         repo_path: str | None = None, countries: list[str] | None = None, genre_id: int | None = None,
-        slug: str | None = None) -> App:
+        slug: str | None = None, play_package: str | None = None) -> App:
     slug = slug or slugify(name)
     if db.one("SELECT id FROM apps WHERE slug = ?", (slug,)):
         raise RankwellError(f"An app with the slug '{slug}' already exists.")
     with db.tx():
         cur = db.execute(
-            "INSERT INTO apps (slug, name, store_id, bundle_id, repo_path, genre_id) VALUES (?, ?, ?, ?, ?, ?)",
-            (slug, name, store_id, bundle_id, repo_path, genre_id),
+            "INSERT INTO apps (slug, name, store_id, bundle_id, repo_path, genre_id, play_package) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (slug, name, store_id, bundle_id, repo_path, genre_id, play_package),
         )
         app_id = int(cur.lastrowid or 0)
         set_countries(db, app_id, countries or ["us"])
     return get(db, app_id)
 
 
-UPDATABLE = {"name", "store_id", "bundle_id", "repo_path", "genre_id"}
+UPDATABLE = {"name", "store_id", "bundle_id", "repo_path", "genre_id", "play_package"}
 
 
 def update(db: Database, app_id: int, **fields: Any) -> App:

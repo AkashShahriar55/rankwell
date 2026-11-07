@@ -7,6 +7,7 @@ RANKWELL_ASC_ISSUER_ID, RANKWELL_ASC_KEY_ID and RANKWELL_ASC_KEY_PATH (path to t
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -73,3 +74,69 @@ def delete_asc_key() -> None:
     for name in (_ISSUER, _KEY_ID, _PRIVATE_KEY):
         with contextlib.suppress(Exception):  # missing entries are fine
             kr.delete_password(SERVICE, name)
+
+
+# ------------------------------------------------------------------ Google Play
+# The Play Console service account (its JSON key file), as one Keychain entry. RANKWELL_PLAY_KEY_PATH (path to
+# the JSON file) overrides it.
+
+_PLAY = "play_service_account"
+_PLAY_FIELDS = ("type", "project_id", "private_key_id", "private_key", "client_email", "token_uri")
+
+
+@dataclass(frozen=True)
+class PlayKey:
+    client_email: str
+    private_key_id: str
+    private_key: str
+    token_uri: str = "https://oauth2.googleapis.com/token"  # noqa: S105 (a URL, not a secret)
+
+    def __repr__(self) -> str:  # never print the key
+        return (f"PlayKey(client_email={self.client_email!r}, private_key_id={self.private_key_id!r}, "
+                "private_key=<hidden>)")
+
+
+def _play_from_json(text: str) -> PlayKey:
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = None
+    if not (isinstance(data, dict) and data.get("type") == "service_account" and data.get("client_email")
+            and "BEGIN PRIVATE KEY" in str(data.get("private_key", ""))):
+        raise NotConfigured("That file is not a Google service account JSON key (type \"service_account\").")
+    return PlayKey(str(data["client_email"]), str(data.get("private_key_id") or ""), str(data["private_key"]),
+                   str(data.get("token_uri") or PlayKey.token_uri))
+
+
+def play_key() -> PlayKey:
+    """The Google Play service account key, or NotConfigured with what to do."""
+    path = os.environ.get("RANKWELL_PLAY_KEY_PATH")
+    if path:
+        return _play_from_json(Path(path).expanduser().read_text())
+    stored = _keyring().get_password(SERVICE, _PLAY)
+    if not stored:
+        raise NotConfigured("No Google Play key. Run `rankwell play init --key <service-account.json>` (a service "
+                            "account with access to the app in Play Console → Users and permissions).")
+    return _play_from_json(stored)
+
+
+def has_play_key() -> bool:
+    try:
+        play_key()
+    except NotConfigured:
+        return False
+    return True
+
+
+def store_play_key(path: Path | str) -> PlayKey:
+    """Check the JSON key file and keep only the fields Rankwell needs in the Keychain."""
+    text = Path(path).expanduser().read_text()
+    key = _play_from_json(text)
+    data = json.loads(text)
+    _keyring().set_password(SERVICE, _PLAY, json.dumps({k: data[k] for k in _PLAY_FIELDS if k in data}))
+    return key
+
+
+def delete_play_key() -> None:
+    with contextlib.suppress(Exception):  # a missing entry is fine
+        _keyring().delete_password(SERVICE, _PLAY)

@@ -95,6 +95,8 @@ def checks() -> list[dict[str, Any]]:
         "rankwell schedule install --at 11:00", optional=True)
     add("Xcode command line tools", shutil.which("xcrun") is not None, "for uploading builds",
         "xcode-select --install", optional=True)
+    add("Google Play key", secrets.has_play_key(), "only for apps on Google Play",
+        "rankwell play init --key <service-account.json>", optional=True)
     link = user_bin() / "rankwell"
     found = shutil.which("rankwell")  # the plugin's own environment does not count: it is gone outside uv run
     add("rankwell in the terminal", link.exists() or bool(found and not found.startswith(sys.prefix)),
