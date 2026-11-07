@@ -82,3 +82,12 @@ def test_plan_cannot_be_applied_twice_concurrently(tmp_path) -> None:  # type: i
     for t in threads:
         t.join()
     assert writes == [p["id"]] and len(errors) == 2
+
+
+def test_reserved_payload_keys_refused() -> None:
+    from rankwell import db as dbmod
+
+    db = dbmod.Database(":memory:")
+    plans.applier("noop_reserved")(lambda d, p: {})
+    with pytest.raises(PlanError, match="reserved"):
+        plans.create(db, "noop_reserved", None, [], "h", payload={"status": "draft"})

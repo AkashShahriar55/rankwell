@@ -201,9 +201,11 @@ def find_aab(app: App, explicit: str | None = None) -> Path:
             raise RankwellError(f"No .aab at {p}.")
         return p
     repo = release.repo_of(app)
-    found = [Path(p) for p in glob.glob(os.path.join(glob.escape(str(repo)), AAB_GLOB)) if Path(p).is_file()]
+    pattern = release.play_settings(repo).get("aab") or AAB_GLOB
+    full = pattern if os.path.isabs(pattern) else os.path.join(glob.escape(str(repo)), pattern)
+    found = [Path(p) for p in glob.glob(full) if Path(p).is_file()]
     if not found:
-        raise RankwellError(f"No .aab in {repo / AAB_GLOB}. Build it first: flutter build appbundle --release.")
+        raise RankwellError(f"No .aab matching {full}. Build it first: flutter build appbundle --release.")
     return max(found, key=lambda p: p.stat().st_mtime)
 
 

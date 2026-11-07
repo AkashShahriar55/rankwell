@@ -42,7 +42,7 @@ def get(db: Database, ref: str | int) -> App:
 def _decorate(db: Database, a: App) -> App:
     a["countries"] = [r["country"] for r in db.all(
         "SELECT country FROM app_countries WHERE app_id = ? ORDER BY rowid", (a["id"],))]
-    a["stage"] = "live" if a.get("store_id") else "prelaunch"
+    a["stage"] = "live" if a.get("store_id") or a.get("play_package") else "prelaunch"
     return a
 
 

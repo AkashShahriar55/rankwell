@@ -26,6 +26,8 @@ Plan = dict[str, Any]
 # writing anything, and audit() for each change it makes.
 Applier = Callable[[Database, Plan], dict[str, Any]]
 _appliers: dict[str, Applier] = {}
+RESERVED = {"id", "kind", "app_id", "payload", "live_hash", "created_at", "expires_at", "status", "result",
+            "applied_at", "changes", "notes"}
 
 
 def applier(kind: str) -> Callable[[Applier], Applier]:
@@ -45,6 +47,9 @@ def create(db: Database, kind: str, app_id: int | None, changes: list[dict[str, 
            ttl_minutes: int = TTL_MINUTES) -> Plan:
     if kind not in _appliers:
         raise PlanError(f"No applier for plan kind '{kind}'.")
+    clash = RESERVED & set(payload or {})
+    if clash:  # get() merges the payload into the row; these would hide the plan's own columns
+        raise PlanError(f"Plan payload keys {sorted(clash)} are reserved; rename them.")
     sweep(db)
     pid = f"{kind}-{pysecrets.token_hex(4)}"
     now = dt.datetime.now(dt.UTC)

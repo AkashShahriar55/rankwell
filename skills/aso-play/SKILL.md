@@ -31,8 +31,9 @@ nothing is half-applied.
 
 ## 2. Release (Flutter)
 - `play_tracks(app)`: what is on internal, alpha (closed), beta (open) and production now.
-- Build: show the user the command `flutter build appbundle --release` and the repo folder, ask, and only on
-  yes run it in the terminal. Raise the +N build number in pubspec.yaml first if that version code is
+- Build: the command is `[play] command` in `.aso/release.toml` when set, else `flutter build appbundle
+  --release` (`[play] aab` overrides where the .aab is looked for). Show the command and the repo folder, ask,
+  and only on yes run it in the terminal. Raise the +N build number in pubspec.yaml first if that version code is
   already on Play (the plan refuses a duplicate).
 - `play_plan_upload(app, track, release_notes={"en-US": "..."}, rollout=...)`:
   - New app never published on Play: status "draft".

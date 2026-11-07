@@ -47,7 +47,8 @@ RELEASE_TYPES = {"after-approval": "AFTER_APPROVAL", "manual": "MANUAL"}
 _KEYS = {"build": {"kind", "command", "ipa", "scheme", "workspace", "project", "configuration", "export_options",
                    "lane"},
          "upload": {"kind", "command", "lane"},
-         "release": {"type", "phased"}}
+         "release": {"type", "phased"},
+         "play": {"command", "aab"}}  # Google Play build (play.py reads it; the iOS pipeline ignores it)
 EXAMPLE = """[build]
 kind = "flutter"            # flutter | xcode | fastlane | custom
 ipa = "build/ios/ipa/*.ipa"
@@ -57,7 +58,12 @@ kind = "altool"             # altool | fastlane | custom
 
 [release]
 type = "after-approval"     # or "manual"
-phased = false"""
+phased = false
+
+# [play]                    # Google Play (optional)
+# command = "flutter build appbundle --release"
+# aab = "build/app/outputs/bundle/release/*.aab"
+"""
 REQUIRED_IPHONE = ("APP_IPHONE_67", "APP_IPHONE_65")  # Apple needs one of these sizes for iPhone apps
 IPAD_13 = ("APP_IPAD_PRO_3GEN_129", "APP_IPAD_PRO_129")
 EXIT_MARK = "[rankwell] exit"
@@ -159,6 +165,16 @@ def repo_of(app: App) -> Path:
     if not repo.is_dir():
         raise RankwellError(f"The repo path of {app['name']} does not exist: {repo}")
     return repo
+
+
+def play_settings(repo: Path) -> dict[str, str]:
+    """The [play] table of <repo>/.aso/release.toml (command, aab glob), checked like the rest; {} when absent."""
+    f = repo / ".aso" / "release.toml"
+    if not f.exists():
+        return {}
+    load(repo)  # same validation and messages as the iOS pipeline
+    data = tomllib.loads(f.read_text())
+    return dict(data.get("play", {}))
 
 
 def load(repo: Path) -> ReleaseConfig:
