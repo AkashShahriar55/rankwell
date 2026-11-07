@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/AkashShahriar55/rankwell/actions/workflows/ci.yml/badge.svg)](https://github.com/AkashShahriar55/rankwell/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/AkashShahriar55/rankwell?color=3ddc97)](https://github.com/AkashShahriar55/rankwell/releases) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB.svg) ![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg) ![Stores](https://img.shields.io/badge/stores-App%20Store%20%7C%20Google%20Play-black.svg)
 
-**[Quick start](#quick-start)** · **[Skills](#skills)** · **[How it works](#how-it-works)** ·
+**[Quick start](#quick-start)** · **[Step-by-step guide](https://medium.com/@akashshahriar55/how-to-automate-app-store-optimization-with-claude-code-step-by-step-687f1a2c1ebd)** · **[Skills](#skills)** · **[How it works](#how-it-works)** ·
 **[Safety](#safety)** · **[Command line](#command-line)** · **[FAQ](#faq)**
 
 </div>
@@ -51,6 +51,9 @@ claude plugin install rankwell@rankwell
 Setup checks the install, stores your App Store Connect key in the macOS Keychain (you give the path of the
 `.p8` file; its content never enters the chat), adds the app and its competitors, picks keywords and runs the
 first collection.
+
+New to it? The [step-by-step guide on Medium](https://medium.com/@akashshahriar55/how-to-automate-app-store-optimization-with-claude-code-step-by-step-687f1a2c1ebd) walks through setup, your first briefing, a
+listing change and a release.
 
 **3. Then just ask:**
 
