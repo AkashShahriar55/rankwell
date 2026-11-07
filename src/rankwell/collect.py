@@ -211,6 +211,10 @@ def _save_reviews(ctx: _Context, ids: list[int], country: str) -> int:
     n = 0
     for sid in ids:
         rows: list[dict[str, Any]] = ctx.cached(appstore.reviews, sid, country)
+        rows = [r for r in rows if not ctx.db.value(  # already saved from App Store Connect
+            "SELECT 1 FROM reviews WHERE store_id = ? AND id LIKE 'asc-%' AND author = ? AND COALESCE(title, '') = ? "
+            "AND substr(reviewed_at, 1, 10) = substr(?, 1, 10)",
+            (sid, r.get("author"), r.get("title") or "", r.get("reviewed_at") or ""))]
         n += ctx.db.upsert("reviews", rows, ["id"])
     return n
 
@@ -223,8 +227,14 @@ def _asc_reviews(ctx: _Context, app: apps.App) -> int:
     client = ctx.asc()
     if client is None:
         return 0
+    try:
+        found = replies.asc_reviews(client, app, days=ASC_REVIEW_DAYS, max_rating=5)
+    except StoreError as e:
+        if e.status in (403, 404):  # an app tracked but published from another account, as in sync_asc
+            return 0
+        raise
     rows = []
-    for r in replies.asc_reviews(client, app, days=ASC_REVIEW_DAYS, max_rating=5):
+    for r in found:
         dup = ctx.db.value("SELECT 1 FROM reviews WHERE store_id = ? AND id NOT LIKE 'asc-%' AND author = ? "
                            "AND COALESCE(title, '') = ? AND substr(reviewed_at, 1, 10) = substr(?, 1, 10)",
                            (int(app["store_id"]), r["author"], r["title"], r["created"]))

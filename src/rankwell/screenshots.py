@@ -524,8 +524,8 @@ def upload(asc: ASC, set_id: str, path: Path, name: str, size: int, checksum: st
                     raise StoreError(f"upload of part at byte {offset} → {resp.status_code}", resp.status_code)
         asc.patch(f"/v1/appScreenshots/{aid}", {"data": {
             "type": "appScreenshots", "id": aid, "attributes": {"uploaded": True, "sourceFileChecksum": checksum}}})
-    except StoreError as e:
-        raise _UploadFailed(str(e), aid) from e
+    except (StoreError, OSError, KeyError, ValueError, TypeError) as e:  # a file gone, an odd answer: per file
+        raise _UploadFailed(str(e) or type(e).__name__, aid) from e
     return aid
 
 
@@ -536,7 +536,12 @@ def wait_delivery(asc: ASC, ids: list[str], timeout: float | None = None) -> dic
     pending = list(ids)
     while pending:
         for aid in list(pending):
-            r = asc.get(f"/v1/appScreenshots/{aid}", **{"fields[appScreenshots]": "fileName,assetDeliveryState"})
+            try:
+                r = asc.get(f"/v1/appScreenshots/{aid}", **{"fields[appScreenshots]": "fileName,assetDeliveryState"})
+            except StoreError as e:  # cannot tell: report it as not complete, never as done
+                out[aid] = {"id": aid, "state": "UNKNOWN", "errors": [f"could not read its state: {e}"]}
+                pending.remove(aid)
+                continue
             out[aid] = _shot(r["data"])
             if out[aid]["state"] in ("COMPLETE", "FAILED"):
                 pending.remove(aid)

@@ -91,3 +91,12 @@ def test_reviews_first_page_has_no_page_segment() -> None:
         assert str(route.calls[0].request.url).endswith("/us/rss/customerreviews/id=42/sortby=mostrecent/json")
         _appstore.reviews(42, "us", page=2)
         assert "/page=2/id=42/" in str(route.calls[1].request.url)
+
+
+def test_throttle_books_turns_per_bucket() -> None:
+    from rankwell.stores import http as _http
+
+    assert _http._reserve("bucket-a", 1.0) <= 0  # first call goes now
+    assert 0.9 < _http._reserve("bucket-a", 1.0) <= 1.0  # the next waits for its turn
+    assert 1.9 < _http._reserve("bucket-a", 1.0) <= 2.0  # and the one after that, without sleeping under the lock
+    assert _http._reserve("bucket-b", 1.0) <= 0  # another bucket is not held up

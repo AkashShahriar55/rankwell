@@ -44,12 +44,20 @@ def close() -> None:
 
 
 def throttle(bucket: str, min_interval: float) -> None:
-    """Wait so calls in one bucket are at least min_interval seconds apart."""
+    """Wait so calls in one bucket are at least min_interval seconds apart. The wait happens outside the shared
+    lock, so a slow bucket (Google Trends) never holds up calls to other hosts."""
+    wait = _reserve(bucket, min_interval)
+    if wait > 0:
+        time.sleep(wait)
+
+
+def _reserve(bucket: str, min_interval: float) -> float:
+    """Book the caller's turn in the bucket; returns how long to wait for it."""
     with _lock:
-        wait = min_interval - (time.monotonic() - _last_call.get(bucket, 0.0))
-        if wait > 0:
-            time.sleep(wait)
-        _last_call[bucket] = time.monotonic()
+        now = time.monotonic()
+        slot = max(now, _last_call.get(bucket, 0.0) + min_interval)
+        _last_call[bucket] = slot
+    return slot - now
 
 
 def request(

@@ -201,4 +201,5 @@ def test_keyword_weight_unknown_vs_never_suggested() -> None:
 
     assert st.keyword_weight(None) == st.DEFAULT_POPULARITY
     assert st.keyword_weight({"popularity": None, "suggested_after_chars": None}) == st.MIN_POPULARITY
+    assert st.keyword_weight({"popularity": None}) == st.DEFAULT_POPULARITY  # e.g. today's movers, never scored
     assert st.keyword_weight({"popularity": 80}) == 80

@@ -30,7 +30,8 @@ Tell the user, step by step:
 2. Name it "Rankwell", role **App Manager**. That is the least access that can read analytics, edit the
    listing and submit builds. Do not use Admin; Finance is not needed.
 3. Download the `.p8` file (Apple allows one download). Copy the **Issuer ID** (top of the page).
-4. Ask for the path of the `.p8` file (they can drag it into the chat) and the issuer id, then ask
+4. Ask them to type the path of the `.p8` file (not to attach or @-mention it: that puts the key's content
+   into the conversation) and the issuer id, then ask
    "Save this key in your Keychain?" and on yes call `asc_key_save(key_path, issuer_id)`. Rankwell reads the
    file itself; the key id comes from the file name `AuthKey_<KEY ID>.p8`. Afterwards the `.p8` can be deleted
    or stored somewhere safe. In a terminal the same is `rankwell init --asc-key <path> --issuer-id <id>`.

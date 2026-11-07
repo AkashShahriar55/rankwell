@@ -42,16 +42,16 @@ def test_reviews_feed() -> None:
 
 @needs_key
 def test_asc_read_only() -> None:
+    # Checks are plain booleans so a failure never prints account data into a CI log.
     asc = ASC()
     apps = asc.apps()
-    assert apps, "the key sees no apps"
-    sid = apps[0]["id"]
-    versions = asc.get(f"/v1/apps/{sid}/appStoreVersions", limit=5)["data"]
-    assert (versions and "appVersionState" in versions[0]["attributes"]) or "appStoreState" in versions[0]["attributes"]
-    infos = asc.get(f"/v1/apps/{sid}/appInfos")["data"]
-    assert infos
+    assert bool(apps), "the key sees no apps"
+    sid = apps[0]["store_id"]
+    versions = asc.get(f"/v1/apps/{sid}/appStoreVersions", limit=5).get("data") or []
+    has_state = all("appVersionState" in v["attributes"] or "appStoreState" in v["attributes"] for v in versions)
+    assert has_state, "appStoreVersions lost its state attribute"
+    assert "data" in asc.get(f"/v1/apps/{sid}/appInfos"), "appInfos changed shape"
     reviews = asc.get(f"/v1/apps/{sid}/customerReviews", limit=5, include="response")
-    assert "data" in reviews
-    reqs = asc.get(f"/v1/apps/{sid}/analyticsReportRequests")
-    assert "data" in reqs
+    assert "data" in reviews, "customerReviews changed shape"
+    assert "data" in asc.get(f"/v1/apps/{sid}/analyticsReportRequests"), "analyticsReportRequests changed shape"
     print(f"ASC ok: {len(apps)} apps, {len(versions)} versions, {len(reviews['data'])} reviews read")

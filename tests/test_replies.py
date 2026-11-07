@@ -170,3 +170,30 @@ def test_collector_saves_own_reviews_from_asc(fake: FakeReviews, setup: Any) -> 
     assert collect._asc_reviews(ctx, app) == 1  # type: ignore[arg-type]  # review 2 is already in from the feed
     row = db.one("SELECT * FROM reviews WHERE id = 'asc-1'")
     assert row and row["country"] == "us" and row["rating"] == 2 and row["content"] == "body 1"
+
+
+def test_duplicate_review_ids_refused(fake: FakeReviews, setup: Any) -> None:
+    db, app = setup
+    fake.add("1", 1, RECENT.format(5))
+    with pytest.raises(RankwellError, match="One reply per review"):
+        replies.plan_replies(db, listing.connect(), app, [{"review_id": "1", "text": "a"},
+                                                         {"review_id": "1", "text": "b"}])
+
+
+def test_age_cutoff_uses_utc() -> None:
+    import datetime as dt
+
+    assert replies._utc("2026-11-07T01:00:00-07:00") == dt.datetime(2026, 11, 7, 8, 0, tzinfo=dt.UTC)
+    assert replies._utc("garbage").year == 1
+
+
+def test_collector_skips_apps_from_another_account(fake: FakeReviews, setup: Any) -> None:
+    from types import SimpleNamespace
+
+    from rankwell import apps as apps_mod
+    from rankwell import collect
+
+    db, _ = setup
+    other = apps_mod.add(db, "Client App", store_id=999)  # the fake answers 404 for it
+    client = listing.connect()
+    assert collect._asc_reviews(SimpleNamespace(db=db, asc=lambda: client), other) == 0  # type: ignore[arg-type]

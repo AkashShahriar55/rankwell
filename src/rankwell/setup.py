@@ -61,7 +61,8 @@ def install_cli(bin_dir: Path | None = None) -> dict[str, Any]:
     if link.is_symlink() or link.exists():
         if link.is_symlink() and link.resolve() == launcher.resolve():
             return {"linked": True, "link": str(link), "already": True, "on_path": on_path(folder)}
-        if not link.is_symlink():
+        ours = link.is_symlink() and Path(os.readlink(link)).expanduser().resolve().parent == launcher.parent.resolve()
+        if not ours:  # a file, or a link from pipx, uv tool or the user
             raise RankwellError(f"{link} exists and is not a link Rankwell made; leaving it alone.")
         link.unlink()
     link.symlink_to(launcher)

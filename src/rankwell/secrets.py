@@ -112,7 +112,11 @@ def play_key() -> PlayKey:
     """The Google Play service account key, or NotConfigured with what to do."""
     path = os.environ.get("RANKWELL_PLAY_KEY_PATH")
     if path:
-        return _play_from_json(Path(path).expanduser().read_text())
+        try:
+            text = Path(path).expanduser().read_text()
+        except OSError as e:
+            raise NotConfigured(f"RANKWELL_PLAY_KEY_PATH points at a file that cannot be read ({path}).") from e
+        return _play_from_json(text)
     stored = _keyring().get_password(SERVICE, _PLAY)
     if not stored:
         raise NotConfigured("No Google Play key. Run `rankwell play init --key <service-account.json>` (a service "

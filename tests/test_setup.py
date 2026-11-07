@@ -80,3 +80,17 @@ def test_wrapper_without_uv_explains(tmp_path: Path) -> None:
 
 def test_wrapper_is_executable() -> None:
     assert os.access(ROOT / "bin" / "rankwell", os.X_OK)
+
+
+def test_install_cli_leaves_foreign_symlink(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(schedule, "rankwell_command", lambda: ["/bin/echo"])
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin" / "rankwell").symlink_to("/usr/bin/true")
+    with pytest.raises(RankwellError, match="not a link"):
+        setup.install_cli(tmp_path / "bin")
+
+
+def test_play_key_path_missing_is_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RANKWELL_PLAY_KEY_PATH", "/nonexistent/sa.json")
+    assert secrets.has_play_key() is False
+    assert any(r["name"] == "Google Play key" for r in setup.checks())

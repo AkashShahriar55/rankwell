@@ -46,7 +46,7 @@ def asc_reviews(asc: ASC, app: App, days: int = 30, max_rating: int = 5, unanswe
     if days < 1:
         raise RankwellError("days must be 1 or more.")
     sid = listing.asc_app_id(asc, app)
-    since = (dt.datetime.now(dt.UTC) - dt.timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
+    since = dt.datetime.now(dt.UTC) - dt.timedelta(days=days)
     params: dict[str, Any] = {"sort": "-createdDate", "include": "response", "limit": 200,
                               "filter[rating]": ",".join(str(r) for r in range(1, max(1, min(5, max_rating)) + 1))}
     if territory:
@@ -58,7 +58,7 @@ def asc_reviews(asc: ASC, app: App, days: int = 30, max_rating: int = 5, unanswe
         included = {r["id"]: r for r in page.get("included", []) if r.get("type") == "customerReviewResponses"}
         for rv in page.get("data", []):
             row = _row(rv, included)
-            if row["created"][:19] < since:
+            if _utc(row["created"]) < since:
                 return out
             if not (unanswered_only and row["response"]):
                 out.append(row)
@@ -69,6 +69,15 @@ def asc_reviews(asc: ASC, app: App, days: int = 30, max_rating: int = 5, unanswe
             return out
         seen.add(nxt)
         page = asc.request("GET", nxt)
+
+
+def _utc(stamp: str) -> dt.datetime:
+    """Apple's createdDate (local offset, e.g. -07:00) in UTC; an unreadable one counts as old."""
+    try:
+        t = dt.datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return dt.datetime.min.replace(tzinfo=dt.UTC)
+    return t.astimezone(dt.UTC) if t.tzinfo else t.replace(tzinfo=dt.UTC)
 
 
 def reviews_display(rows: list[dict[str, Any]]) -> str:
@@ -114,6 +123,10 @@ def plan_replies(db: Database, asc: ASC, app: App, replies: list[dict[str, str]]
         raise RankwellError("No replies given.")
     if len(replies) > MAX_PER_PLAN:
         raise RankwellError(f"At most {MAX_PER_PLAN} replies per plan; split them.")
+    ids = [str(r.get("review_id") or "").strip() for r in replies]
+    dupes = sorted({i for i in ids if i and ids.count(i) > 1})
+    if dupes:
+        raise RankwellError(f"One reply per review: {', '.join(dupes)} given more than once.")
     changes: list[dict[str, Any]] = []
     live_state: dict[str, Any] = {}
     for r in replies:
