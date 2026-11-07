@@ -1,66 +1,95 @@
+<div align="center">
+
 # Rankwell
 
-App Store Optimization (ASO) and release assistant that lives in Claude Code.
+**App Store Optimization and release automation, inside Claude Code.**
 
-You build iOS apps; Rankwell tells you where each app stands in the App Store, what to change, and ships the
-change, from the same chat where you write code. There is no dashboard to open.
+Know where your app stands, decide what to change, and ship the change, from the same chat where you write
+the code.
 
-> Status: early development (0.x). App Store and Google Play. macOS only.
+[![CI](https://github.com/AkashShahriar55/rankwell/actions/workflows/ci.yml/badge.svg)](https://github.com/AkashShahriar55/rankwell/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB.svg)
+![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)
+![Stores: App Store and Google Play](https://img.shields.io/badge/stores-App%20Store%20%7C%20Google%20Play-black.svg)
+
+[Install](#install) · [What you can ask](#what-you-can-ask) · [How it works](#how-it-works) ·
+[Safety](#safety) · [Command line](#command-line) · [FAQ](#faq)
+
+</div>
+
+---
+
+Most ASO tools are dashboards you have to remember to open, and most release tools stop at the upload.
+Rankwell is a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin that does both jobs where
+you already work:
+
+- **It watches.** A daily job tracks keyword ranks, your listing and your competitors' listings, reviews,
+  category charts and App Store Connect analytics, and keeps the history on your Mac.
+- **It advises with evidence.** Gap reports, keyword research and listing copy come with the numbers behind
+  them and cite the ASO rule they follow.
+- **It ships.** Listing changes, screenshots, review replies, builds, submissions and Google Play releases go
+  out through a plan you approve in chat: current value → new value, then your yes.
+- **It remembers.** Decisions, experiments and progress live in a `.aso/` folder in each app repo, so the
+  next session starts where the last one stopped.
+
+> **Status:** early development (0.x). iOS App Store and Google Play. macOS only.
+
+## Example
+
+```text
+You:      how is NorthStar doing?
+
+Rankwell: NorthStar · last 7 days (US)
+
+          | keyword            | rank | change | trend    |
+          |--------------------|------|--------|----------|
+          | habit tracker      |   38 |    +9  | ▁▂▃▃▅▆▇  |
+          | streak app         |   12 |    +2  | ▃▃▄▄▅▅▆  |
+          | daily goals        |    – |   out  | ▆▅▃▂▁    |
+
+          Page views 1,204 (+14%) · conversion 31% · rating 4.6 (128)
+          A competitor changed its subtitle to "Habit Tracker & Streaks" on Tuesday.
+
+          Next: 1. Answer the 2 new one-star reviews  2. Move "streaks" into the subtitle
+                3. Close experiment EXP-004 (due today)
+```
+
+*Illustrative output for a sample app.*
 
 ## What you can ask
 
-| You say | What happens | Skill |
-|---|---|---|
-| "set up Rankwell for my app" | Key check, app, competitors, seed keywords, first collection, daily schedule | `aso-setup` |
-| "how is my app doing?" | What moved (ranks, ratings, reviews, competitors, funnel) and 1-3 next actions | `aso-today` |
-| "what does my app lack against competitors?" | Strengths and weaknesses with the numbers behind them, competitor review complaints | `aso-gap` |
-| "which keywords should I target?" | Ideas, popularity, difficulty, who owns the top 10, add to tracking | `aso-keywords` |
-| "write my listing" / "change the subtitle" | Copy options with reasons, checks against limits, a current → new plan, pushed after your yes | `aso-listing` |
-| "show downloads for the last 30 days" | Funnel, ranks, visibility, ratings and charts as tables and sparklines | `aso-stats` |
-| "what should I change in the code for ASO?" | Audit of the app repo: permission texts, rating prompt, display name, localizations, privacy manifest, deep links, icon | `aso-code-audit` |
-| "ship 1.2" | Check, build, upload, attach, review info, submit; each write confirmed | `aso-ship` |
-| "the app got rejected" | Review state, Apple's message mapped to the guideline, fix plan, resubmit | `aso-review-fix` |
-| "reply to my bad reviews" | Unanswered low ratings from App Store Connect, grouped by problem, drafted replies posted after your yes | `aso-reviews` |
-| "upload these screenshots" | Folder check (sizes, alpha, count), current → new per device size, upload and reorder after your yes | `aso-screenshots` |
-| "release on Google Play" | Play listing, .aab upload to a track with staged rollout, Play reviews and replies | `aso-play` |
-| "did the new subtitle work?" | Open and judge ASO experiments against a baseline | `aso-experiment` |
+| You say | What happens |
+|---|---|
+| "set up Rankwell for my app" | Checks the install, stores your key, adds the app, finds competitors, seeds keywords, runs the first collection |
+| "how is my app doing?" | What moved in ranks, ratings, reviews, competitors and the funnel, and the next one to three actions |
+| "what does my app lack against competitors?" | Strengths and weaknesses with evidence, competitor complaints, estimated downloads |
+| "which keywords should I target?" | Ideas with App Store popularity, Google demand, difficulty and who owns the top 10 |
+| "write my listing" · "change the subtitle" | Options with reasons, checks against limits, a current → new plan for one or many languages |
+| "upload these screenshots" | Checks sizes, transparency and count, then uploads and orders them per device size |
+| "reply to my bad reviews" | Finds unanswered low ratings, groups them by problem, drafts replies, posts after your yes |
+| "what should I change in the code for ASO?" | Audits the app repo: permission texts, rating prompt, display name, localizations, privacy manifest |
+| "ship 1.2" | Checks what Apple needs, builds, uploads, attaches the build, fills review info and submits |
+| "the app got rejected" | Maps Apple's message to the guideline, plans the fix and resubmits |
+| "release on Google Play" | Updates the Play listing, uploads the .aab to a track with a staged rollout, replies to Play reviews |
+| "show downloads for the last 30 days" | Funnel, ranks, visibility, ratings and charts as tables and sparklines |
+| "did the new subtitle work?" | Opens and judges experiments against their baseline |
 
-## How it works
-
-- **MCP server** (`rankwell mcp`, started by Claude Code through `bin/rankwell`): about 60 tools for apps,
-  keywords, collection, insights, listing, screenshots, reviews, release, Google Play, state and knowledge.
-  Results carry a ready-to-show `display` block.
-- **Daily collection** (`rankwell collect`, run by launchd): ranks (top 200) for every tracked keyword,
-  listing snapshots and changes for your apps and competitors, reviews (your own from App Store Connect),
-  category charts, App Store Connect analytics (impressions, page views, downloads by source), and once a
-  week Google demand for your keywords.
-- **Storage**: a local SQLite database at `~/.rankwell/rankwell.db` for numbers, and a `.aso/` folder in each
-  app repo for context, decisions, experiments, progress and release settings (`release.toml`).
-- **Secrets**: the App Store Connect key and the Google Play service account live in the macOS Keychain,
-  never in files or logs.
-- **Safety**: every change to App Store Connect is a plan (current → new) that you approve in chat before it
-  is applied; plans expire after 30 minutes, are re-checked against live data, and land in an audit log.
-  The only delete is replacing screenshots of a version in preparation, after the new ones are processed.
-  Google Play changes are one Play edit each, committed only when every step worked.
-- **Numbers you can trust**: popularity is a proxy built from how few letters you type before App Store
-  autocomplete suggests a term (fair across short and long terms; unknown is shown as unknown, not 0), not
-  search volume. `google_demand` is the same idea on Google. Download estimates for competitors are fitted on
-  your own App Store Connect downloads and chart ranks, always shown as a range with the number of data
-  points, and say "needs more data" until one of your apps has charted.
-- **Knowledge**: concise ASO rules ship in `knowledge/`; add your own notes with `[knowledge] dirs` in
-  `~/.rankwell/config.toml` (yours win when they conflict).
-
-Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-
-## Requirements
-
-- macOS with Claude Code and [uv](https://docs.astral.sh/uv/) (`brew install uv`)
-- Xcode command line tools for builds and uploads
-- An App Store Connect API key (App Manager role) for analytics, metadata, reviews and releases. Public data
-  (ranks, competitors, keywords) works without one.
-- Optional: a Google Play service account (JSON) with access to your apps, for Google Play.
+Each row is a skill in [`skills/`](skills) that Claude follows step by step.
 
 ## Install
+
+**Requirements**
+
+- macOS with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [uv](https://docs.astral.sh/uv/)
+  (`brew install uv`)
+- Xcode command line tools, for building and uploading iOS apps
+- An [App Store Connect API key](https://developer.apple.com/documentation/appstoreconnectapi/creating-api-keys-for-app-store-connect-api)
+  with the App Manager role, for analytics, metadata, reviews and releases. Public data (ranks, competitors,
+  keywords) works without one.
+- Optional: a Google Play service account with access to your apps
+
+**Add the plugin**
 
 ```bash
 claude plugin marketplace add AkashShahriar55/rankwell
@@ -70,9 +99,11 @@ claude plugin marketplace add AkashShahriar55/rankwell
 claude plugin install rankwell@rankwell
 ```
 
-Then in Claude Code: "set up Rankwell for my app". It checks the install, saves your App Store Connect key
-from the `.p8` file path (Claude never sees the key), adds the app and its competitors, picks keywords, runs
-the first collection and offers the daily schedule. Or by hand:
+Restart Claude Code, open your app's repo and say **"set up Rankwell for my app"**. Setup asks for the path
+of your `.p8` key file and stores the key in the macOS Keychain; its content never enters the chat.
+
+<details>
+<summary>Set up from a terminal instead</summary>
 
 ```bash
 rankwell init --asc-key ~/Downloads/AuthKey_XXXXXXXXXX.p8 --issuer-id <issuer id>
@@ -86,44 +117,108 @@ rankwell schedule install --at 11:00
 rankwell doctor
 ```
 
-Inside the plugin `rankwell` runs as `~/.claude/plugins/cache/rankwell/rankwell/<version>/bin/rankwell`;
-`rankwell install-cli` links it as `~/.local/bin/rankwell` for any terminal.
+Inside Claude Code the command lives in the plugin folder; `rankwell install-cli` links it as
+`~/.local/bin/rankwell` so it works in any terminal and survives plugin updates.
+
+</details>
+
+## How it works
+
+```mermaid
+flowchart LR
+    subgraph Mac["Your Mac"]
+        CC["Claude Code<br/>skills"] -->|MCP| S["Rankwell server"]
+        J["Daily job<br/>(launchd)"] --> DB[("SQLite<br/>~/.rankwell")]
+        S --> DB
+        S --> A[".aso/ in each<br/>app repo"]
+        S --> K["Keychain<br/>(keys)"]
+    end
+    S -->|read| P["App Store<br/>public data"]
+    S -->|plan → yes → apply| ASC["App Store Connect"]
+    S -->|plan → yes → apply| GP["Google Play"]
+    J -->|read| P
+    J -->|read| ASC
+```
+
+| Piece | What it does |
+|---|---|
+| **Skills** | Thirteen step-by-step playbooks Claude follows for setup, daily briefings, keywords, listings, screenshots, reviews, code audits, releases, rejections, Google Play and experiments |
+| **MCP server** | About 60 tools. Every result carries a ready-to-show block of Markdown tables, sparklines and bars |
+| **Daily job** | Ranks (top 200) for every tracked keyword, listings and their changes for you and your competitors, your reviews, category charts, App Store Connect analytics, and weekly Google demand. It catches up on missed days when your Mac was asleep |
+| **Storage** | Numbers in a local SQLite database; context, decisions, experiments and release settings as Markdown and TOML in each app repo, versioned with your code |
+| **Knowledge** | Short ASO rules in [`knowledge/`](knowledge), cited by id in every recommendation. Add your own notes and they win when they disagree |
+
+More detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Safety
+
+Rankwell can change your live store listing, so every write follows the same rules:
+
+1. **Plan first.** A `plan_*` tool reads the live state and shows current → new for every field. Nothing is
+   sent yet.
+2. **Your yes.** Claude asks; only your explicit approval applies the plan.
+3. **Re-checked.** Before writing, the live state is read again. If anything changed since the plan was made,
+   the plan is refused and you get a fresh one. Plans expire after 30 minutes.
+4. **Logged.** Every change is recorded in an audit log you can read back ("what did Rankwell change?").
+5. **No deletes.** The one exception is replacing screenshots of a version that is not live yet, and the old
+   ones go only after the new ones finished processing.
+6. **Google Play** changes are made in a single Play edit that is committed only when every step worked.
+
+Keys live in the macOS Keychain, never in files, logs, the database or the chat. All data stays on your Mac;
+there is no Rankwell server.
 
 ## Command line
+
+The skills cover everything; the command line is for the terminal, CI and long uploads.
 
 | Command | Does |
 |---|---|
 | `rankwell doctor` | Checks the setup and says what is missing |
-| `rankwell install-cli` | Links `~/.local/bin/rankwell` (keeps working across plugin updates) |
-| `rankwell collect [--app X] [--catch-up]` | Runs the daily collection now |
-| `rankwell schedule install\|uninstall\|status` | Manages the daily launchd job |
-| `rankwell ship <app> --step check\|build\|upload\|attach\|submit [--yes]` | Release steps for the terminal or CI |
-| `rankwell screenshots scan\|live\|upload <app> --locale --folder [--mode replace\|append] [--yes]` | Screenshot uploads from a terminal (large sets) |
-| `rankwell play init --key <sa.json>` | Stores the Google Play service account in the Keychain |
-| `rankwell play tracks <app>` / `rankwell play upload <app> --track internal [--yes]` | Play releases per track; .aab upload from a terminal or CI |
+| `rankwell collect [--app X]` | Runs the collection now |
+| `rankwell schedule install \| uninstall \| status` | Manages the daily job |
+| `rankwell ship <app> --step check \| build \| upload \| attach \| submit [--yes]` | iOS release steps |
+| `rankwell screenshots upload <app> --locale en-US --folder shots/ [--yes]` | Uploads a screenshot set |
+| `rankwell play upload <app> --track internal [--yes]` | Uploads an .aab to Google Play |
 | `rankwell backup` | Writes a consistent copy of the database |
-| `rankwell import tracker --env <file>` | One-off import from the original Supabase tracker |
+
+Run `rankwell --help` for every command and option.
 
 ## Data sources and limits
 
-Ranks, listings and charts come from Apple's public iTunes Search/Lookup APIs, autocomplete and RSS feeds.
-They are close to, not identical with, what the App Store shows, and can change without notice: a weekly
-GitHub workflow (`tests/test_live.py`) calls them read-only to notice. Since November 2026 Apple's public
-review feed answers empty to non-browser clients, so your own reviews come from App Store Connect and
-competitor reviews are not refreshed. App Store Connect data comes from Apple's official API and arrives
-1-2 days late. Google demand uses Google autocomplete and, best effort, Google Trends.
+| Data | Source | Notes |
+|---|---|---|
+| Ranks, listings, charts | Apple's public Search, Lookup and RSS endpoints | Close to, not identical with, what the App Store shows |
+| Keyword popularity | App Store autocomplete | A proxy, not search volume: how few letters people type before the term is suggested |
+| Google demand | Google autocomplete and Google Trends | Best effort; compare with itself, not with App Store popularity |
+| Analytics, your reviews | App Store Connect API | Official; analytics arrive one to two days late |
+| Download estimates | Fitted on your own analytics and chart ranks | Always shown as a range with its data points; needs one of your apps to have charted |
+| Google Play | Google Play Developer API | Your own apps only |
 
-## Development
+A weekly read-only check against Apple's live endpoints catches changes on Apple's side early. Known issue:
+since November 2026 Apple's public review feed returns nothing to tools like Rankwell, so your own reviews come
+from App Store Connect and competitor reviews are not refreshed.
 
-```bash
-uv sync
-```
+## FAQ
 
-```bash
-uv run pytest -q && uv run ruff check && uv run mypy
-```
+**Does it work without an App Store Connect key?**
+Yes, for ranks, competitors, keywords, charts and gap reports. Analytics, your reviews, listing changes and
+releases need the key.
 
-`uv run pytest -m live` runs the read-only checks against Apple's real endpoints (App Store Connect ones need
-`RANKWELL_ASC_ISSUER_ID`, `RANKWELL_ASC_KEY_ID` and `RANKWELL_ASC_KEY_PATH`).
+**Is my data sent anywhere?**
+No. Rankwell talks only to Apple and Google. Your data stays in `~/.rankwell` and your repos.
 
-See [docs/CONTRACT.md](docs/CONTRACT.md) for module ownership and naming.
+**Can I use fastlane or my own build script?**
+Yes. `.aso/release.toml` takes a Flutter, Xcode, fastlane or custom command for building and uploading.
+
+**Windows or Linux?**
+Not yet. The Keychain, launchd and Xcode parts are macOS-specific.
+
+## Contributing
+
+Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the setup, the checks every
+change must pass and how the code is organised. To report a security problem, follow
+[SECURITY.md](SECURITY.md) instead of opening an issue.
+
+## License
+
+[MIT](LICENSE) © 2026 Akash Shahriar

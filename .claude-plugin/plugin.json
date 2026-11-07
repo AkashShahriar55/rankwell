@@ -1,9 +1,25 @@
 {
   "name": "rankwell",
   "version": "0.2.0",
-  "description": "App Store Optimization and release assistant: ranks, competitors, keywords, metadata, builds, review and resubmission, from chat.",
-  "author": { "name": "Akash Shahriar" },
+  "description": "App Store Optimization and release automation: rank tracking, competitor gaps, keywords, listings, screenshots, review replies, iOS and Google Play releases, all from chat.",
+  "author": {
+    "name": "Akash Shahriar"
+  },
   "homepage": "https://github.com/AkashShahriar55/rankwell",
   "repository": "https://github.com/AkashShahriar55/rankwell",
-  "keywords": ["aso", "app-store", "app-store-connect", "ios", "keywords", "release"]
+  "keywords": [
+    "aso",
+    "app-store-optimization",
+    "app-store",
+    "app-store-connect",
+    "google-play",
+    "ios",
+    "android",
+    "keywords",
+    "screenshots",
+    "reviews",
+    "release",
+    "fastlane-alternative"
+  ],
+  "license": "MIT"
 }

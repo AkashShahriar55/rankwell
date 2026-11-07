@@ -1,11 +1,15 @@
 {
   "name": "rankwell",
-  "owner": { "name": "Akash Shahriar" },
+  "owner": {
+    "name": "Akash Shahriar"
+  },
   "plugins": [
     {
       "name": "rankwell",
       "source": "./",
-      "description": "App Store Optimization and release assistant for Claude Code."
+      "description": "Track ranks and competitors, research keywords, write and push listings, upload screenshots, reply to reviews and ship iOS and Google Play releases from chat.",
+      "category": "productivity"
     }
-  ]
+  ],
+  "description": "Rankwell: App Store Optimization and release automation for Claude Code."
 }

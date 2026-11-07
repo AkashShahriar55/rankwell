@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- MIT license, contributing guide, security policy, issue and pull request templates, Dependabot.
+
+### Changed
+- README rewritten: example, install, how it works, safety model, data sources, FAQ.
+
 ## [0.2.0] - 2026-11-07
 
 ### Added

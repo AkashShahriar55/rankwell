@@ -1,0 +1,37 @@
+name: Bug report
+description: Something does not work as described
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Never paste keys, .p8 contents, service account JSON or tokens into an issue.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you asked or ran, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `rankwell doctor`
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Rankwell version
+      description: "`rankwell --version`"
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS and Claude Code versions
