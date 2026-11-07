@@ -5,11 +5,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-07
+
 ### Added
-- MIT license, contributing guide, security policy, issue and pull request templates, Dependabot.
+- MIT license, contributing guide, security policy, issue and pull request templates, Dependabot, CODEOWNERS.
+- Works outside Claude Code: `uv tool install "git+https://github.com/AkashShahriar55/rankwell@v0.2.1"` gives a
+  `rankwell` command and MCP server for Cursor, Claude Desktop, Windsurf and other MCP clients; the shipped ASO
+  rules now travel inside the package.
+- `extras/app-store-listing-writer`: a standalone skill (no server, no network) that writes App Store
+  listings with a stdlib checker for limits and wasted keywords.
+- `extras/build_agensi.py` builds upload zips for skill marketplaces.
 
 ### Changed
-- README rewritten: example, install, how it works, safety model, data sources, FAQ.
+- README rewritten: cover, quick start, example prompts, grouped skills, safety model, data sources, FAQ.
+- CI uses actions/checkout v7 and astral-sh/setup-uv v7.
 
 ## [0.2.0] - 2026-11-07
 

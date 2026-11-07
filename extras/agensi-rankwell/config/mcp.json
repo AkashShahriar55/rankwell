@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "rankwell": {
+      "command": "rankwell",
+      "args": ["mcp"]
+    }
+  }
+}

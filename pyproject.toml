@@ -1,6 +1,6 @@
 [project]
 name = "rankwell"
-version = "0.2.0"
+version = "0.2.1"
 description = "App Store Optimization and release automation for Claude Code"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -49,6 +49,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rankwell"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"knowledge" = "rankwell/_knowledge"
 
 [tool.ruff]
 line-length = 120

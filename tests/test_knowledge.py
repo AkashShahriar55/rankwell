@@ -97,3 +97,15 @@ def test_skills_frontmatter_and_tool_names() -> None:
     for name, text in found.items():
         used = set(re.findall(r"`([a-z_]+)\(", text)) | set(re.findall(r"`([a-z]+_[a-z_]+)`", text))
         assert used - TOOLS == set(), (name, used - TOOLS)
+
+
+def test_wheel_install_finds_packaged_rules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import shutil
+
+    pkg = tmp_path / "site-packages" / "rankwell"
+    (pkg / "_knowledge").mkdir(parents=True)
+    shutil.copy(ROOT / "knowledge" / "keywords.md", pkg / "_knowledge" / "keywords.md")
+    fake = pkg / "knowledge.py"
+    fake.write_text("")
+    monkeypatch.setattr(knowledge, "__file__", str(fake))
+    assert knowledge.shipped_dir() == pkg / "_knowledge"

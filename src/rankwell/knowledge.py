@@ -52,7 +52,9 @@ def shipped_dir() -> Path:
     root = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if root and (Path(root) / "knowledge").is_dir():
         return Path(root) / "knowledge"
-    return Path(__file__).resolve().parents[2] / "knowledge"
+    checkout = Path(__file__).resolve().parents[2] / "knowledge"
+    # A wheel install (uv tool install, other agents) carries the rules inside the package.
+    return checkout if checkout.is_dir() else Path(__file__).resolve().parent / "_knowledge"
 
 
 def topic_of(name: str) -> str:
