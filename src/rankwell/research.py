@@ -1,9 +1,19 @@
-"""Keyword research: ideas, popularity proxy, difficulty, market check.
+"""Keyword research: ideas, popularity proxy, difficulty, Google demand, market check.
 
 Scores use Rankwell's own 0-100 scale. Popularity is a proxy from App Store autocomplete, not Apple Ads
-popularity or search volume. It favours long phrases (the store completes them from a shorter share of
-their letters), so compare `suggested_after_chars` between keywords of different lengths: fewer letters
-typed means stronger demand. A popularity of 0 means "never suggested", not "no demand".
+popularity or search volume. It is built from how few letters must be typed before the store suggests the
+term (fewer = more searched), discounted when that prefix is most of the term and by the term's position in
+the suggestions:
+
+    popularity = 100 × letters(typed) × saved(typed, length) × place(position)
+    letters    = exp(-LETTER_DECAY × (typed - 2))      2 letters → 1.0, 4 → 0.79, 8 → 0.49, 13 → 0.27
+    saved      = min(1, untyped share / FULL_SHARE)    0 when the whole term had to be typed
+    place      = 1 - POSITION_STEP × (position - 1)    #1 → 1.0, #10 → 0.73
+
+So a long phrase is not rewarded for being long: "photo enhancer for blurry images" suggested after 8
+letters scores like any term suggested after 8 letters. A term the store never suggests has popularity
+None (unknown), not 0. google_demand is the same scale on Google autocomplete (None when Google did not
+answer).
 """
 
 from __future__ import annotations
@@ -14,10 +24,17 @@ import string
 from collections.abc import Callable
 from typing import Any
 
-from .stores import appstore
+from .stores import appstore, google
 
 Search = Callable[..., list[dict[str, Any]]]
 Suggest = Callable[[str, str], list[str]]
+Demand = Callable[[str, str], dict[str, Any] | None]
+
+LETTER_DECAY = 0.12
+FULL_SHARE = 0.5  # the store filled in half the term or more: full credit
+POSITION_STEP = 0.03
+MIN_SUGGESTED = 5
+PROBES = (2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 20)  # every letter while it matters most
 
 
 def ideas(seed: str, country: str = "us", suggest: Suggest = appstore.autocomplete) -> list[dict[str, Any]]:
@@ -29,18 +46,44 @@ def ideas(seed: str, country: str = "us", suggest: Suggest = appstore.autocomple
     return list(found.values())
 
 
+def popularity_value(typed: int | None, length: int, position: int | None) -> int | None:
+    """0-100 from the letters typed before the term was suggested; None when it was never suggested."""
+    if typed is None or length <= 0:
+        return None
+    letters = math.exp(-LETTER_DECAY * (max(typed, 2) - 2))
+    saved = min(1.0, max(0.0, 1 - typed / length) / FULL_SHARE)
+    place = 1 - POSITION_STEP * (max(1, min(position or 1, 10)) - 1)
+    return max(MIN_SUGGESTED, min(100, round(100 * letters * saved * place)))
+
+
+def popularity_basis(typed: int | None, length: int, position: int | None, source: str = "App Store") -> str:
+    if typed is None:
+        return f"never suggested by {source} autocomplete: unknown, not zero"
+    return f"{source} suggested it after {typed} of {length} letters, #{position or 1}"
+
+
 def popularity(keyword: str, country: str = "us",
-               suggest: Suggest = appstore.autocomplete) -> tuple[int, int | None, int | None]:
-    """(score, letters typed before the store suggested it, position). Never suggested → (0, None, None)."""
+               suggest: Suggest = appstore.autocomplete) -> tuple[int | None, int | None, int | None]:
+    """(score, letters typed before the store suggested it, position). Never suggested → (None, None, None)."""
     kw = keyword.lower().strip()
     n = len(kw)
-    for typed in sorted({min(n, k) for k in (2, 3, 4, 5, 6, 8, 10, 13, 16, 20, n)}):
+    for typed in sorted({min(n, k) for k in (*PROBES, n)}):
         sugg = [s.lower() for s in suggest(kw[:typed], country)]
         if kw in sugg:
-            pos = sugg.index(kw)
-            score = 100 * (1 - typed / n) + 15 - 2 * pos
-            return max(5, min(100, round(score))), typed, pos + 1
-    return 0, None, None
+            pos = sugg.index(kw) + 1
+            return popularity_value(typed, n, pos), typed, pos
+    return None, None, None
+
+
+def google_demand(keyword: str, country: str = "us",
+                  probe: Demand = google.first_suggested) -> tuple[int | None, str]:
+    """(0-100 Google demand on the popularity scale, basis). None when Google never suggests it or did not answer."""
+    kw = " ".join(keyword.lower().split())
+    found = probe(kw, country)
+    if found is None:
+        return None, "Google did not answer (rate limited or offline): unknown"
+    return (popularity_value(found["typed"], len(kw), found["position"]),
+            popularity_basis(found["typed"], len(kw), found["position"], "Google"))
 
 
 def difficulty(keyword: str, top: list[dict[str, Any]]) -> tuple[int, dict[str, Any]]:
@@ -59,12 +102,15 @@ def difficulty(keyword: str, top: list[dict[str, Any]]) -> tuple[int, dict[str, 
 
 
 def score(keyword: str, country: str = "us", search: Search = appstore.search,
-          suggest: Suggest = appstore.autocomplete) -> dict[str, Any]:
-    pop, typed, _ = popularity(keyword, country, suggest)
-    diff, d = difficulty(keyword, search(keyword, country, limit=10))
+          suggest: Suggest = appstore.autocomplete, demand: Demand = google.first_suggested) -> dict[str, Any]:
+    kw = " ".join(keyword.lower().split())
+    pop, typed, pos = popularity(kw, country, suggest)
+    diff, d = difficulty(kw, search(kw, country, limit=10))
+    gdemand, gbasis = google_demand(kw, country, demand)
     return {
-        "term": keyword.lower().strip(), "country": country, "popularity": pop,
-        "suggested_after_chars": typed, "difficulty": diff, "median_ratings": d["median_ratings"],
+        "term": kw, "country": country, "popularity": pop, "suggested_after_chars": typed,
+        "popularity_basis": popularity_basis(typed, len(kw), pos), "google_demand": gdemand,
+        "google_basis": gbasis, "difficulty": diff, "median_ratings": d["median_ratings"],
         "title_match": d["title_match"], "top_app": d["top_app"],
     }
 

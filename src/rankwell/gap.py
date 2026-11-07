@@ -15,7 +15,7 @@ import statistics
 from collections import Counter
 from typing import Any
 
-from . import apps, render, stats
+from . import apps, estimates, render, stats
 from .apps import App
 from .db import Database
 from .stats import Data, ago, clip, trim
@@ -377,15 +377,18 @@ def report(db: Database, app: App | str | int, country: str | None = None, *, as
         strengths, weaknesses = [], []
         opps = [{"area": "reviews", "point": f"Competitors' users complain about “{t['term']}”",
                  "evidence": f"{t['reviews']} low reviews ({t['share']}%){_quoted(t)}"} for t in comp_themes[:5]]
+    est = estimates.for_ids(db, ids, c, now)
     for x in [own, *comps]:
         if x is not None:
             ch = charts.get(x["store_id"])
             x["chart"] = f"{render.rank(ch['rank'])} {ch['chart']}" if ch else None
+            if x["store_id"] in est:  # only apps in a free or paid chart
+                x["downloads_estimate"] = est[x["store_id"]]
     out = {**base, "own": own, "competitors": comps, "median": med, "keyword_battle": fight,
            "complaints": {"competitors": {"reviews": len(comp_reviews), "themes": comp_themes},
                           "own": {"reviews": len(own_reviews), "themes": own_themes}},
            "strengths": strengths, "weaknesses": weaknesses, "opportunities": opps}
-    out["display"] = _display(a, c, own, seen, med, fight, out)
+    out["display"] = _display(db, a, c, own, seen, med, fight, out)
     return out
 
 
@@ -403,7 +406,24 @@ def _g(v: float | None) -> str | None:
     return None if v is None else f"{v:g}"
 
 
-def _display(a: App, c: str, own: Data | None, comps: list[Data], med: Data, fight: list[Data], out: Data) -> str:
+def _estimates_block(db: Database, charted: list[Data]) -> list[str]:
+    """Estimated downloads of the charted apps, labelled as estimates, or why there are none yet."""
+    if not charted:
+        return []
+    rows = []
+    for x in charted:
+        d = x["downloads_estimate"]
+        e = d["estimate"]
+        rows.append({"app": trim(x["name"], 28), "chart": f"{render.rank(d['rank'])} {d['chart']}",
+                     "est": estimates.text(e) if e else "–", "basis": e["basis"] if e else "–"})
+    if not any(x["downloads_estimate"]["estimate"] for x in charted):
+        return [f"**Downloads (estimate)**: {estimates.needs_more(estimates.data_status(db))}"]
+    return ["**Downloads (estimate, not App Store numbers; 80% range)**\n\n" + render.table(
+        rows, ["app", "chart", "est", "basis"], {"est": "estimate (range)"})]
+
+
+def _display(db: Database, a: App, c: str, own: Data | None, comps: list[Data], med: Data, fight: list[Data],
+             out: Data) -> str:
     rows = ([{**_row(own), "app": f"**{trim(own['name'], 26)}**"}] if own and own["snapshot"] else [])
     shown, note = clip(comps, 10)
     rows += [_row(x) for x in shown]
@@ -420,6 +440,7 @@ def _display(a: App, c: str, own: Data | None, comps: list[Data], med: Data, fig
                           {"v90": f"versions {CADENCE_DAYS}d", "shots": "screenshots", "desc": "description",
                            "coverage": f"kw in title+sub (of {n_terms})"},
                           align_right=["ratings", "stars", "updated", "v90", "shots", "desc", "coverage"]) + note]
+    lines += _estimates_block(db, [x for x in ([own] if own else []) + comps if "downloads_estimate" in x])
     if not own or not own["snapshot"]:
         lines.append(f"_{a['name']} has no listing snapshot yet (not live or not collected), so this is the market "
                      "baseline only._")

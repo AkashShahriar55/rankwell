@@ -22,8 +22,11 @@ competitor name [kw-no-trademarks].
 
 ## 3. Score
 `keyword_score` on the best 25 and show its `display`. Explain once:
-- **popularity** is a proxy from autocomplete; "letters" is how many letters were typed before the term was
-  suggested (fewer = searched more). Compare terms of similar length; zero means unknown.
+- **popularity** is a proxy from App Store autocomplete, built from how many letters were typed before the term
+  was suggested ("letters"; fewer = searched more), so short and long terms compare fairly. "–" means never
+  suggested: unknown, not zero.
+- **google** (google_demand) is the same scale on Google autocomplete: demand on the web, where people describe
+  the problem [kw-google-demand]. High google with low popularity = a need the App Store has not caught up with.
 - **difficulty** is how strong the current top 10 is (ratings, exact title matches).
 For the 3-5 most promising terms, `market_check` to see who owns the top 10 and get a verdict.
 
