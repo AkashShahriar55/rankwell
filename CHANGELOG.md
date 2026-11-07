@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Linux scheduling: `rankwell schedule install|uninstall|status` use a systemd user timer
+  (`~/.config/systemd/user/rankwell-collect.{service,timer}`, `Persistent=true` so a missed run happens at the
+  next start) and fall back to a tagged crontab line when `systemctl --user` is not available. Cron cannot catch
+  up missed days, and `status` and `doctor` say so. The macOS launchd job is unchanged.
+
+### Changed
+- `rankwell doctor` and `collection_status` report the daily schedule on Linux too.
+
 ## [0.2.2] - 2026-11-08
 
 ### Fixed

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from rankwell import db as dbmod
-from rankwell import secrets
+from rankwell import schedule, secrets
 from rankwell.stores import http
 
 
@@ -34,6 +34,10 @@ def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[P
         monkeypatch.delenv(f"RANKWELL_ASC_{name}", raising=False)
     monkeypatch.setattr(http, "throttle", lambda bucket, interval: None)
     monkeypatch.setattr(dbmod, "_default", None)
+    # On Linux nothing may reach the real systemd user session or crontab: both look "not available".
+    monkeypatch.setattr(schedule, "run_systemctl", lambda args: (127, "no systemctl in tests"))
+    monkeypatch.setattr(schedule, "run_crontab", lambda args, stdin=None: (127, "no crontab in tests"))
+    monkeypatch.setattr(schedule, "systemd_user_dir", lambda: tmp_path / "systemd-user")
     ring = MemoryKeyring()
     monkeypatch.setattr(secrets, "_keyring", lambda: ring)
     yield tmp_path
