@@ -1,0 +1,46 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1280px;height:800px;background:#0a0e13;font-family:-apple-system,sans-serif;color:#e8eef5;overflow:hidden}
+.bg{position:absolute;inset:0;background:linear-gradient(#1f2a36 1px,transparent 1px) 0 0/40px 40px,linear-gradient(90deg,#1f2a36 1px,transparent 1px) 0 0/40px 40px;mask-image:radial-gradient(1100px 700px at 50% 40%,#000 30%,transparent 100%)}
+h1{position:absolute;top:30px;left:0;right:0;text-align:center;font:700 26px -apple-system,sans-serif}
+h1 span{color:#3ddc97}
+.cols{position:absolute;top:86px;left:40px;right:40px;bottom:34px;display:grid;grid-template-columns:1.45fr 1fr;gap:22px}
+.t{border-radius:12px;background:#111821;border:1px solid #243243;overflow:hidden}
+.bar{height:34px;display:flex;align-items:center;gap:7px;padding:0 14px;border-bottom:1px solid #1f2a36;font:12px Menlo,monospace;color:#8696a8}
+.bar i{width:11px;height:11px;border-radius:50%} .bar i:nth-child(1){background:#ff5f57} .bar i:nth-child(2){background:#febc2e} .bar i:nth-child(3){background:#28c840}
+.lbl{margin-left:8px}
+pre{font:12.6px/1.6 Menlo,monospace;padding:14px 16px;white-space:pre-wrap;color:#cfd9e4}
+.cmd{color:#6cb6ff} .r{color:#ff6b6b} .a{color:#ffb547} .g{color:#3ddc97}
+</style></head><body><div class="bg"></div>
+<h1>App Store Listing Writer · <span>every option checked before you paste it</span></h1>
+<div class="cols">
+<div class="t"><div class="bar"><i></i><i></i><i></i><span class="lbl">first draft</span></div><pre><span class="cmd">$ python3 scripts/check_listing.py draft.json</span>
+name                25 / 30       5 left
+subtitle            28 / 30       2 left
+keywords            55 / 100     45 left
+
+<span class="r">PROBLEMS (must fix)</span>
+<span class="r">- keywords: spaces around commas waste characters (1x); write &#x27;a,b,c&#x27;.</span>
+
+<span class="a">TIPS</span>
+- keywords: &#x27;app&#x27; is wasted: every result is an app.
+- &#x27;pomodoro&#x27; is in name and subtitle and keywords; Apple combines these fields, so once is enough. Remove it from keywords to save 9 characters.
+- &#x27;timer&#x27; is in name and subtitle and keywords; Apple combines these fields, so once is enough. Remove it from keywords to save 6 characters.
+- &#x27;focus&#x27; is in subtitle and keywords; Apple combines these fields, so once is enough. Remove it from keywords to save 6 characters.
+- &#x27;tasks&#x27; is in subtitle and keywords; Apple combines these fields, so once is enough. Remove it from keywords to save 6 characters.
+- both &#x27;task&#x27; and &#x27;tasks&#x27;: one form is usually enough.
+- target terms not covered by name, subtitle or keywords: white noise</pre></div>
+<div class="t"><div class="bar"><i></i><i></i><i></i><span class="lbl">recommended option</span></div><pre><span class="cmd">$ python3 scripts/check_listing.py option1.json</span>
+name                25 / 30       5 left
+subtitle            26 / 30       4 left
+keywords           100 / 100      0 left
+
+<span class="g">✓ No problems found.</span>
+
+<span style="color:#8696a8">name      FocusFlow: Pomodoro Timer
+subtitle  Study focus &amp; task planner
+keywords  work,productivity,tracker,
+          deep,session,interval,break,
+          todo,list,adhd,white,noise,
+          sounds,sync,ambient</span></pre></div>
+</div></body></html>
