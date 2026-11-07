@@ -20,7 +20,8 @@ their own copy on their own Mac with their own App Store Connect key. Nothing is
 5. **Show it well in chat.** Tables, sparklines and bar charts that read in a terminal; questions with
    options for decisions.
 
-Non-goals for 1.0: Google Play, hosted multi-user service, paid ads management.
+Non-goals for 1.0: hosted multi-user service, paid ads management. Google Play covers the user's own apps
+(listing, releases, reviews), not public Play rank tracking.
 
 ## Pieces
 
@@ -29,8 +30,9 @@ rankwell/
 ├── .claude-plugin/
 │   ├── plugin.json          plugin manifest
 │   └── marketplace.json     the repo is its own marketplace
-├── .mcp.json                starts the MCP server: uv run rankwell mcp
-├── hooks/hooks.json         SessionStart → rankwell hook session-start (due items, nudges)
+├── .mcp.json                starts the MCP server: bin/rankwell mcp
+├── bin/rankwell             finds uv (or explains it is missing) and runs the package
+├── hooks/hooks.json         SessionStart → bin/rankwell hook session-start (due items, nudges)
 ├── skills/<name>/SKILL.md   one folder per skill (see Skills)
 ├── knowledge/               default ASO rules shipped with the plugin (own words, cited)
 ├── src/rankwell/            Python package (CLI, MCP server, collector, domain logic)
@@ -48,20 +50,27 @@ rankwell/
 | `db/` | SQLite connection (WAL, foreign keys, busy timeout), numbered SQL migrations |
 | `stores/appstore.py` | Public App Store data: search, lookup, autocomplete, subtitle, charts, reviews |
 | `stores/asc.py` | App Store Connect API client (JWT ES256, retries, pagination) |
-| `stores/google.py` | Google and YouTube autocomplete, Google Trends (best effort) |
+| `stores/google.py` | Google autocomplete and Google Trends (best effort; throttled, cached, paused after 429) |
+| `stores/play.py` | Google Play Developer API client (service-account JWT → OAuth token, edits, listings, tracks, bundles, reviews) |
 | `apps.py` | The user's apps, their keywords, competitors and countries |
-| `research.py` | Keyword ideas, popularity proxy, difficulty, market check |
+| `research.py` | Keyword ideas, popularity proxy (letters typed before suggested), Google demand, difficulty, market check |
+| `demand.py` | Weekly Google demand of tracked keywords |
+| `estimates.py` | Chart rank → downloads curves fitted on the user's own App Store Connect data; labelled estimates |
 | `collect.py` | Daily collection: ranks, listing snapshots, change detection, reviews, charts, App Store Connect analytics |
 | `stats.py` | Numbers for charts and reports: rank history, visibility, funnel, ratings, period comparison |
 | `gap.py` | Market gap: the app vs its competitors (listing, ratings, keywords, review complaints, screenshots) |
 | `listing.py` | Metadata: read live and draft, check limits, plan a change, apply a confirmed plan |
 | `release.py` | Release pipeline: build, upload, wait for processing, attach, review info, submit, resubmit |
 | `review.py` | Review state and rejection handling |
+| `replies.py` | Customer reviews from App Store Connect and reply plans |
+| `screenshots.py` | Screenshots: live sets, scan a local folder (size → display type, alpha), plan and apply uploads |
+| `play.py` | Google Play: listing check and plans, .aab upload to a track, tracks, reviews and reply plans |
+| `setup.py` | Setup checks (doctor, setup_status), saving the key from a file path, `rankwell` on the PATH |
 | `state.py` | The `.aso/` folder in each app repo: context, decisions, experiments, progress |
 | `render.py` | Terminal output: tables, sparklines, bars, deltas |
 | `importers/` | One-off imports (the original tracker's Supabase) |
 | `mcp/server.py` | MCP tools Claude calls |
-| `cli.py` | `rankwell` command: init, doctor, collect, mcp, schedule, hook, import |
+| `cli.py` | `rankwell` command: init, doctor, install-cli, collect, mcp, schedule, hook, import, ship, screenshots, play |
 | `schedule.py` | Installs and removes the launchd job for the daily collection |
 
 ## Storage
@@ -79,14 +88,18 @@ app and should be versioned with it:
 
 **SQLite (`~/.rankwell/rankwell.db`).** Time series and anything queried for charts: apps, keywords,
 competitors, daily ranks, listing snapshots, detected changes, reviews, chart positions, App Store Connect
-daily metrics, keyword scores, pending plans and an audit log of every write to App Store Connect.
+daily metrics, keyword scores, Google demand (`google_demand`), download curves (`download_curves`), review
+replies sent, Play reviews (`play_reviews`; the API returns only 7 days, so Rankwell keeps them), pending plans
+and an audit log of every write to App Store Connect and Google Play.
 
 The database is one file. Backup is a copy (`rankwell backup` writes a consistent copy with SQLite's
 backup API). Migrations are numbered SQL files applied in order and recorded in `schema_migrations`.
 
 **Secrets.** The App Store Connect issuer id, key id and private key (.p8 content) go in the Keychain under
 the service `rankwell`. `RANKWELL_ASC_ISSUER_ID`, `RANKWELL_ASC_KEY_ID`, `RANKWELL_ASC_KEY_PATH` override
-it (CI). Secrets never go in the database, the `.aso/` folder, logs or MCP responses.
+it (CI). The Google Play service account JSON is one Keychain entry (`play_service_account`);
+`RANKWELL_PLAY_KEY_PATH` overrides it. Secrets never go in the database, the `.aso/` folder, logs or MCP
+responses.
 
 ## Daily collection
 
@@ -99,9 +112,11 @@ Per app and country:
 1. Lookup the app and its competitors (one call, up to 200 ids) → snapshot; diff against the previous
    snapshot → `changes` rows (title, subtitle, version, description, screenshots, price, rating count).
 2. Search each tracked keyword (top 200) → rank of each tracked app.
-3. Reviews (RSS, newest 50) → upsert.
+3. Reviews: the public RSS feed (newest 50; since November 2026 it answers empty to non-browser clients), and
+   the app's own reviews from App Store Connect (all countries, last two weeks) when a key is set.
 4. Category chart (RSS top 100) → position of each tracked app.
 5. App Store Connect analytics (when a key is set and the app is in the account) → daily metrics by source.
+6. Extras after the apps: Google demand for up to 40 keywords not checked this week; refit download curves.
 
 Public endpoints are rate limited (about 20 calls per minute for search and lookup), so collection is
 sequential with a throttle and retries with backoff. One HTTP client is reused for the whole run.
@@ -119,7 +134,12 @@ Skills tell Claude to show the plan as a table and ask the user before applying.
 
 One write is automatic: App Store Connect analytics need report requests per app, and the collector
 creates them once (audited; off with `[analytics] create_report_requests = false`). Submitting for review
-and uploading a build are separate plans. Nothing deletes App Store Connect data.
+and uploading a build are separate plans. Nothing deletes App Store Connect data, except replacing
+screenshots in a version in preparation: the old ones of a set are deleted after the new ones finished
+processing (a full set first loses its last one to make room).
+
+Google Play writes are plans too: the applier opens a Play edit, re-reads and verifies the hash inside it,
+makes the change, validates and commits, and deletes the edit on any failure. Review replies need no edit.
 
 ## Release pipeline
 
@@ -160,6 +180,9 @@ resolved and resubmit in the same submission.
 | `aso-review-fix` | Rejection → fix plan → resubmit |
 | `aso-experiment` | Open and close experiments |
 | `aso-setup` | First run: key, apps, keywords, competitors, schedule |
+| `aso-reviews` | Unanswered reviews → drafted replies → posted after a yes |
+| `aso-screenshots` | Upload, replace and reorder screenshots |
+| `aso-play` | Google Play listing, Android release to a track, Play reviews |
 
 Skills read the shipped `knowledge/` rules and any extra knowledge folders the user configured, and cite
 the rule they use.
@@ -184,4 +207,6 @@ data. Decisions use Claude's question prompt with options.
 1. Daily value: collector, schedule, import from the original tracker, today, stats, keywords, gap, listing.
 2. Shipping: release pipeline, review state, rejection and resubmit.
 3. Depth: code audit, experiments loop, SessionStart nudges, knowledge rules.
+3.5 Reach (0.2): review replies, screenshots, several languages per plan, Google Play, Google demand,
+    download estimates, setup from chat, weekly live check.
 4. Public: onboarding polish, docs, license, security review.
