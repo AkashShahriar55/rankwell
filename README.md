@@ -234,7 +234,7 @@ No. Rankwell talks only to Apple and Google. Your data stays in `~/.rankwell` an
 Yes. `.aso/release.toml` takes a Flutter, Xcode, fastlane or custom command for building and uploading.
 
 **Does it work with Cursor or other agents?**
-Yes, as an MCP server: `uv tool install "git+https://github.com/AkashShahriar55/rankwell@v0.2.1"`, then add
+Yes, as an MCP server: `uv tool install "git+https://github.com/AkashShahriar55/rankwell@v0.2.2"`, then add
 `{"command": "rankwell", "args": ["mcp"]}` to your client's MCP config. The step-by-step playbooks are written
 for Claude Code skills but read fine as instructions in any agent. For listing copy without the server, use
 the standalone skill in [`extras/app-store-listing-writer`](extras/app-store-listing-writer).
