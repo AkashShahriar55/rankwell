@@ -23,7 +23,7 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any
 
-from . import apps, config, paths, plans, secrets
+from . import apps, config, demand, estimates, paths, plans, secrets
 from .db import Database
 from .errors import RankwellError, StoreError
 from .stores import appstore, http
@@ -59,6 +59,7 @@ def run(db: Database, app_refs: list[str] | None = None, on: dt.date | str | Non
     run_id = int(db.execute("INSERT INTO runs (kind, started_at) VALUES ('collect', ?)", (now_utc(),)).lastrowid or 0)
     ctx = _Context(db, day, asc or _default_asc, log or (lambda _msg: None))
     results: dict[str, dict[str, Any]] = {}
+    extras: dict[str, Any] | None = None
     try:
         for app in targets:
             ctx.log(f"{app['name']}: collecting")
@@ -67,15 +68,33 @@ def run(db: Database, app_refs: list[str] | None = None, on: dt.date | str | Non
             except Exception as e:  # one app must never stop the others
                 results[app["slug"]] = {**_empty_counts(), "status": "failed", "errors": [_err("app", e)]}
             ctx.log(f"{app['name']}: {results[app['slug']]['status']}")
+        extras = _extras(ctx, [a["id"] for a in targets])
     finally:
         statuses = {r["status"] for r in results.values()}
         status = "ok" if statuses <= {"ok"} else "failed" if statuses == {"failed"} else "partial"
         if len(results) < len(targets):
             status = "failed" if not results else "partial"
         summary = {"date": day, "apps": results}
+        if extras is not None:
+            summary["extras"] = extras
         db.execute("UPDATE runs SET finished_at = ?, status = ?, summary = ? WHERE id = ?",
                    (now_utc(), status, json.dumps(summary, ensure_ascii=False, default=str), run_id))
     return {"run_id": run_id, "date": day, "status": status, "apps": results}
+
+
+def _extras(ctx: _Context, app_ids: list[int]) -> dict[str, Any]:
+    """Best-effort extras after the apps: weekly Google demand of tracked keywords, download curves refit.
+    They never change the run status."""
+    out: dict[str, Any] = {}
+    steps: tuple[tuple[str, Callable[[], dict[str, Any]]], ...] = (
+        ("google_demand", lambda: demand.collect(ctx.db, ctx.day, app_ids)),
+        ("download_curves", lambda: estimates.fit_all(ctx.db, ctx.day)))
+    for name, fn in steps:
+        try:
+            out[name] = fn()
+        except Exception as e:
+            out[name] = {"error": _err(name, e)}
+    return out
 
 
 def _default_asc() -> ASC | None:

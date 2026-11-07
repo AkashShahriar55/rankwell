@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
 from .. import render, research
-from ..stores import appstore
+from ..stores import appstore, google
 from ..util import today
 from .common import db, safe
 
@@ -25,19 +26,26 @@ def register(mcp: MCPServer) -> None:
     @mcp.tool()
     @safe
     def keyword_score(terms: list[str], country: str = "us") -> dict[str, Any]:
-        """Popularity proxy, difficulty and top-10 strength for up to 25 keywords. Saved for later use."""
-        rows = [research.score(t, country) for t in terms[:MAX_SCORE]]
+        """Popularity proxy, Google demand, difficulty and top-10 strength for up to 25 keywords. Saved for later.
+        popularity: App Store autocomplete (letters typed before suggested, fair across lengths; None = unknown).
+        google_demand: the same scale on Google autocomplete (None = not suggested or Google did not answer)."""
+        picked = [" ".join(t.lower().split()) for t in terms[:MAX_SCORE]]
+        with ThreadPoolExecutor(max_workers=1) as pool:  # Google probes run beside the App Store calls
+            probes = {t: pool.submit(google.first_suggested, t, country) for t in dict.fromkeys(picked)}
+            rows = [research.score(t, country, demand=lambda kw, c: probes[kw].result()) for t in picked]
         db().upsert("keyword_scores", [{**{k: r[k] for k in (
             "country", "term", "popularity", "suggested_after_chars", "difficulty", "median_ratings",
-            "title_match", "top_app")}, "date": today()} for r in rows], ["country", "term", "date"])
+            "title_match", "top_app", "google_demand")}, "date": today()} for r in rows], ["country", "term", "date"])
         rows.sort(key=lambda r: (-(r["popularity"] or 0), r["difficulty"]))
         shown = [{**r, "median_ratings": render.number(r["median_ratings"]),
                   "typed": r["suggested_after_chars"] or "–"} for r in rows]
         note = "" if len(terms) <= MAX_SCORE else f"\n\nScored the first {MAX_SCORE} of {len(terms)}."
+        legend = ("\n\n_popularity: App Store autocomplete, from the letters typed before it is suggested (comparable "
+                  "across lengths); google: same scale on Google autocomplete; – = unknown, not zero._")
         return {"scores": rows, "display": render.table(
-            shown, ["term", "popularity", "typed", "difficulty", "median_ratings", "top_app"],
-            {"typed": "letters", "median_ratings": "top-10 median ratings"},
-            align_right=["popularity", "typed", "difficulty", "median_ratings"]) + note}
+            shown, ["term", "popularity", "typed", "google_demand", "difficulty", "median_ratings", "top_app"],
+            {"typed": "letters", "google_demand": "google", "median_ratings": "top-10 median ratings"},
+            align_right=["popularity", "typed", "google_demand", "difficulty", "median_ratings"]) + legend + note}
 
     @mcp.tool()
     @safe

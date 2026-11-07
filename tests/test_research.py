@@ -16,8 +16,8 @@ def app(name: str, ratings: int, stars: float = 4.7, released: str = "2020-01-01
 def test_popularity_counts_letters_typed() -> None:
     score, typed, pos = research.popularity("pill reminder", "us", fake_suggest)
     assert (typed, pos) == (3, 1)
-    assert score == round(100 * (1 - 3 / 13) + 15)
-    assert research.popularity("unknown term", "us", fake_suggest) == (0, None, None)
+    assert score == research.popularity_value(3, 13, 1)
+    assert research.popularity("unknown term", "us", fake_suggest) == (None, None, None)
 
 
 def test_difficulty_weights() -> None:

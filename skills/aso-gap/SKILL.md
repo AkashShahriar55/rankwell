@@ -9,6 +9,9 @@ description: Strengths and weaknesses of the user's app against its App Store co
 - `aso_context(app)` for positioning, features that ship and what not to claim.
 - `gap_report(app)`: show its `display` block. It compares listing fields, ratings, keyword coverage,
   screenshot counts and review complaints with the tracked competitors.
+- Downloads for charted apps are **estimates** from chart rank, fitted on the user's own App Store Connect
+  downloads: always say "estimate", give the range and the data points behind it, and never compare them to real
+  numbers as if they were measured. When the block says it needs more data, say so and move on.
 - If the app has fewer than 3 competitors, offer to add some first (`market_check` on a main keyword, then
   `competitors_add` after the user picks).
 
