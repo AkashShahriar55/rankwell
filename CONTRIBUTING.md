@@ -33,6 +33,12 @@ uv run ruff check && uv run mypy && uv run pytest -q
 claude plugin validate .
 ```
 
+To run these automatically before every push, enable the repo's hook once:
+
+```bash
+git config core.hooksPath .githooks
+```
+
 `uv run pytest -m live` calls Apple's real endpoints read-only. It is not part of the normal run and never
 writes anything.
 
