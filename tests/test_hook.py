@@ -115,7 +115,8 @@ def test_hooks_json_shape() -> None:
     data = json.loads((Path(__file__).resolve().parents[1] / "hooks" / "hooks.json").read_text())
     entry = data["hooks"]["SessionStart"][0]["hooks"][0]
     assert entry["type"] == "command" and entry["timeout"] <= 10
-    assert "${CLAUDE_PLUGIN_ROOT}" in entry["command"] and entry["command"].endswith("rankwell hook session-start")
+    assert "${CLAUDE_PLUGIN_ROOT}" in entry["command"]
+    assert entry["command"].endswith('/bin/rankwell" hook session-start')
 
 
 def test_stdin_open_without_eof_does_not_block() -> None:

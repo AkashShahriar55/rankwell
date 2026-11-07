@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import re
-import shutil
 import sys
 from pathlib import Path
 
 import click
 
-from . import __version__, apps, config, paths, secrets
+from . import __version__, apps, config, paths, secrets, setup
 from . import db as dbmod
 from .errors import RankwellError
 
@@ -34,7 +32,7 @@ def init(key_file: Path | None, issuer_id: str | None, key_id: str | None) -> No
     if key_file:
         if not issuer_id:
             raise click.UsageError("--issuer-id is needed with --asc-key.")
-        kid = key_id or _key_id_from_name(key_file.name)
+        kid = key_id or setup.key_id_from_name(key_file.name)
         if not kid:
             raise click.UsageError("Cannot read the key id from the file name; pass --key-id.")
         secrets.store_asc_key(issuer_id, kid, key_file.read_text())
@@ -42,35 +40,21 @@ def init(key_file: Path | None, issuer_id: str | None, key_id: str | None) -> No
         click.echo("You can now delete the .p8 file or keep it somewhere safe; Rankwell no longer needs it.")
 
 
-def _key_id_from_name(name: str) -> str | None:
-    m = re.match(r"AuthKey_([A-Z0-9]{8,})\.p8$", name)
-    return m.group(1) if m else None
-
-
 @main.command()
 def doctor() -> None:
     """Check the setup and say what is missing."""
-    ok = True
+    rows = setup.checks()
+    click.echo(setup.checks_display(rows))
+    sys.exit(0 if all(r["ok"] or r["optional"] for r in rows) else 1)
 
-    def line(good: bool, text: str, fix: str = "") -> None:
-        nonlocal ok
-        ok = ok and good
-        click.echo(("✓ " if good else "✗ ") + text + ("" if good or not fix else f"\n    → {fix}"))
 
-    line(sys.version_info >= (3, 11), f"Python {sys.version.split()[0]}", "Python 3.11 or newer is needed.")
-    line(shutil.which("uv") is not None, "uv installed", "brew install uv")
-    db = dbmod.Database()
-    line(True, f"Database {db.path}")
-    n = len(apps.list_apps(db))
-    line(n > 0, f"{n} app(s) tracked", "Ask Claude: 'set up Rankwell for my app' (skill aso-setup).")
-    line(secrets.has_asc_key(), "App Store Connect key",
-         "rankwell init --asc-key AuthKey_XXXX.p8 --issuer-id <issuer id>")
-    last = db.one("SELECT * FROM runs WHERE kind = 'collect' ORDER BY id DESC LIMIT 1")
-    line(bool(last and last["status"] in ("ok", "partial")),
-         f"Last collection: {last['started_at'] + ' ' + last['status'] if last else 'never'}",
-         "rankwell collect, then rankwell schedule install")
-    line(shutil.which("xcrun") is not None, "Xcode command line tools (for build upload)", "xcode-select --install")
-    sys.exit(0 if ok else 1)
+@main.command("install-cli")
+def install_cli() -> None:
+    """Link ~/.local/bin/rankwell so `rankwell` works in any terminal, across plugin updates."""
+    r = setup.install_cli()
+    click.echo(f"Linked {r['link']}" + (" (already there)" if r.get("already") else ""))
+    if r.get("note"):
+        click.echo(r["note"])
 
 
 @main.command("mcp")

@@ -47,7 +47,8 @@ Ask with AskUserQuestion: Option A / B / C / "Mix or edit". Then `listing_draft_
 ## 5. Push (only after a yes)
 1. Name, subtitle, keywords, description and screenshots need an editable version [meta-version-bound]. If
    there is none, `plan_create_version`, show the plan, ask, `apply_plan`.
-2. `plan_listing(app, ...)`: show the current → new table from its `display`, plus notes.
+2. `plan_listing(app, ...)` for one language, or `plan_listing_languages(app, by_locale={...})` when several
+   languages change together (one plan, one yes): show the current → new table from its `display`, plus notes.
 3. Ask: "Apply these changes to App Store Connect?" with options Apply / Change something / Not now.
 4. Only on Apply: `apply_plan(plan_id)`. If it says the live listing changed, make a new plan and show it
    again.

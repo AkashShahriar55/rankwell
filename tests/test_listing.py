@@ -248,3 +248,33 @@ def test_create_version_refused_when_versions_changed(db: Database, app: dict[st
     with pytest.raises(PlanError):
         plans.apply(db, p["id"])
     assert not fake.writes()
+
+
+def test_plan_several_languages_in_one_plan(db: Database, app: dict[str, Any], fake: FakeASC) -> None:
+    fake.ver_loc("v2", "vl2de", "de-DE", description="Alt", keywords="kamera")
+    p = listing.plan_listing_locales(db, listing.connect(), app, {
+        "en-US": {"description": "New"}, "de-DE": {"description": "Neu", "keywords": "kamera,foto"}})
+    by = {(c["locale"], c["field"]): c for c in p["changes"]}
+    assert by[("en-US", "description")]["current"] == "Old" and by[("de-DE", "keywords")]["new"] == "kamera,foto"
+    assert p["locales"] == ["en-US", "de-DE"] and not fake.writes()
+    result = plans.apply(db, p["id"])
+    assert sorted(result["changed"]) == ["Version 1.1: description (de-DE)", "Version 1.1: description (en-US)",
+                                         "Version 1.1: keywords (de-DE)"]
+    patches = {path: body["data"]["attributes"] for m, path, body in fake.writes()}
+    assert patches["/v1/appStoreVersionLocalizations/vl2de"] == {"description": "Neu", "keywords": "kamera,foto"}
+
+
+def test_several_languages_checked_before_any_read(db: Database, app: dict[str, Any], fake: FakeASC) -> None:
+    with pytest.raises(RankwellError, match="de-DE: Too long"):
+        listing.plan_listing_locales(db, listing.connect(), app, {"en-US": {"name": "ok"},
+                                                                  "de-DE": {"name": "x" * 31}})
+
+
+def test_several_languages_stale_one_refuses_all(db: Database, app: dict[str, Any], fake: FakeASC) -> None:
+    fake.ver_loc("v2", "vl2de", "de-DE", description="Alt")
+    p = listing.plan_listing_locales(db, listing.connect(), app, {"en-US": {"description": "New"},
+                                                                  "de-DE": {"description": "Neu"}})
+    fake.ver_locs["v2"][-1]["attributes"]["description"] = "Changed in App Store Connect"
+    with pytest.raises(PlanError):
+        plans.apply(db, p["id"])
+    assert not fake.writes()

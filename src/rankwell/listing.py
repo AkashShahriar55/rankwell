@@ -279,13 +279,52 @@ def _add(changes: list[dict[str, Any]], area: str, locale: str, field: str, curr
 
 def plan_listing(db: Database, asc: ASC, app: App, locale: str, fields: Mapping[str, str | None]) -> plans.Plan:
     """A plan that makes App Store Connect match these fields for one locale."""
+    sid = asc_app_id(asc, app)
+    changes, notes, cur = _locale_changes(asc, sid, locale, fields)
+    if not changes:
+        raise RankwellError("Nothing to change: App Store Connect already has these values."
+                            + (" " + " ".join(notes) if notes else ""))
+    return plans.create(db, "listing", app["id"], changes, plans.state_hash(cur),
+                        payload={"asc_app_id": sid, "locale": locale}, notes=notes)
+
+
+def plan_listing_locales(db: Database, asc: ASC, app: App,
+                         by_locale: Mapping[str, Mapping[str, str | None]]) -> plans.Plan:
+    """One plan for several languages at once: {locale: fields}. Applied together, re-checked per locale."""
+    if not by_locale:
+        raise RankwellError("No languages given.")
+    for locale, fields in by_locale.items():  # check every language before reading App Store Connect
+        _check_fields(fields, locale)
+    sid = asc_app_id(asc, app)
+    changes: list[dict[str, Any]] = []
+    notes: list[str] = []
+    state: dict[str, Any] = {}
+    for locale, fields in by_locale.items():
+        cs, ns, cur = _locale_changes(asc, sid, locale, fields)
+        changes += cs
+        notes += [n for n in ns if n not in notes]
+        state[locale] = cur
+    if not changes:
+        raise RankwellError("Nothing to change: App Store Connect already has these values in every language."
+                            + (" " + " ".join(notes) if notes else ""))
+    return plans.create(db, "listing", app["id"], changes, plans.state_hash(state),
+                        payload={"asc_app_id": sid, "locales": list(by_locale)}, notes=notes)
+
+
+def _check_fields(fields: Mapping[str, str | None], locale: str | None = None) -> dict[str, str]:
     _validate(fields)
     new = {k: v for k, v in fields.items() if v is not None}
     over = [f"{k} is {len(v)} characters (limit {LIMITS[k]})" for k, v in new.items()
             if k in LIMITS and len(v) > LIMITS[k]]
     if over:
-        raise RankwellError("Too long: " + "; ".join(over) + ".")
-    sid = asc_app_id(asc, app)
+        raise RankwellError(("" if locale is None else f"{locale}: ") + "Too long: " + "; ".join(over) + ".")
+    return new
+
+
+def _locale_changes(asc: ASC, sid: int, locale: str, fields: Mapping[str, str | None]
+                    ) -> tuple[list[dict[str, Any]], list[str], dict[str, Any]]:
+    """The changes for one locale, notes, and the live state they were built from."""
+    new = _check_fields(fields)
     cur = live(asc, sid, locale)
     ev, lv, ids = cur["edit_version"], cur["live_version"], cur["ids"]
     changes: list[dict[str, Any]] = []
@@ -323,11 +362,7 @@ def plan_listing(db: Database, asc: ASC, app: App, locale: str, fields: Mapping[
     if cur["edit_info_id"] and not ids["edit_info_loc"] and any(
             c["target"]["kind"] == "appInfoLocalizations" for c in changes):
         note(f"{locale} is a new language for the app info; it will be added.")
-    if not changes:
-        raise RankwellError("Nothing to change: App Store Connect already has these values."
-                            + (" " + " ".join(notes) if notes else ""))
-    return plans.create(db, "listing", app["id"], changes, plans.state_hash(cur),
-                        payload={"asc_app_id": sid, "locale": locale}, notes=notes)
+    return changes, notes, cur
 
 
 _PARENT = {"appInfoLocalizations": ("appInfo", "appInfos", "/v1/appInfos/{}/appInfoLocalizations"),
@@ -372,29 +407,32 @@ def _set_loc(asc: ASC, kind: str, loc_id: str | None, parent: str, locale: str, 
 @plans.applier("listing")
 def _apply_listing(db: Database, plan: plans.Plan) -> dict[str, Any]:
     asc = connect()
-    plans.verify(plan, plans.state_hash(live(asc, plan["asc_app_id"], plan["locale"])))
-    groups: dict[tuple[str, str | None, str], list[dict[str, Any]]] = {}
+    if plan.get("locales"):
+        plans.verify(plan, plans.state_hash({loc: live(asc, plan["asc_app_id"], loc) for loc in plan["locales"]}))
+    else:
+        plans.verify(plan, plans.state_hash(live(asc, plan["asc_app_id"], plan["locale"])))
+    groups: dict[tuple[str, str, str | None, str], list[dict[str, Any]]] = {}
     for c in plan["changes"]:
         t = c["target"]
-        groups.setdefault((t["kind"], t["id"], t["parent"]), []).append(c)
+        groups.setdefault((c["locale"], t["kind"], t["id"], t["parent"]), []).append(c)
     done: list[str] = []
     errors: list[str] = []
     refused = False
-    for (kind, loc_id, parent), cs in groups.items():
+    for (locale, kind, loc_id, parent), cs in groups.items():
         attrs = {FIELDS[c["field"]]: c["new"] for c in cs}
         shown = {FIELDS[c["field"]]: c["current"] for c in cs}
         try:
-            rid = _set_loc(asc, kind, loc_id, parent, plan["locale"], attrs, shown)
+            rid = _set_loc(asc, kind, loc_id, parent, locale, attrs, shown)
         except (StoreError, PlanError) as e:
             for c in cs:
                 plans.audit(db, plan["id"], "listing", f"{kind}/{loc_id or 'new'}", c["field"], c["current"],
                             c["new"], "error", str(e))
-            errors.append(f"{', '.join(c['field'] for c in cs)}: {e}")
+            errors.append((f"{locale} " if plan.get("locales") else "") + f"{', '.join(c['field'] for c in cs)}: {e}")
             refused = refused or isinstance(e, PlanError)
             continue
         for c in cs:
             plans.audit(db, plan["id"], "listing", f"{kind}/{rid}", c["field"], c["current"], c["new"])
-            done.append(f"{c['area']}: {c['field']}")
+            done.append(f"{c['area']}: {c['field']}" + (f" ({locale})" if plan.get("locales") else ""))
     if errors and not done:
         if refused:
             raise PlanError("Nothing was changed. " + " | ".join(errors))

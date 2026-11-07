@@ -1,24 +1,19 @@
+import asyncio
 import re
 from pathlib import Path
 
 import pytest
 
 from rankwell import knowledge
+from rankwell.mcp import server
 
 ROOT = Path(__file__).resolve().parents[1]
 SHIPPED_TOPICS = {"keywords", "metadata", "screenshots", "ratings-reviews", "conversion", "review-guidelines",
                   "release", "localization", "experiments"}
-TOOLS = {
-    "list_apps", "add_app", "update_app", "keywords_add", "keywords_remove", "competitors_add", "competitors_remove",
-    "keyword_ideas", "keyword_score", "market_check", "app_lookup", "apply_plan", "recent_writes",
-    "collection_status", "collect_now", "app_today", "app_stats", "keyword_ranks", "gap_report", "reviews_list",
-    "competitor_changes", "listing_live", "listing_check", "listing_draft_save", "plan_listing",
-    "plan_create_version", "release_check", "build_start", "build_status", "plan_upload", "plan_attach_build",
-    "plan_review_info", "plan_submit", "review_status", "rejection_record", "aso_context", "aso_init", "aso_note",
-    "experiment_open", "experiment_close", "experiments_due", "code_audit", "knowledge_rules",
-}
+TOOLS = {t.name for t in asyncio.run(server.build().list_tools())}
+# Skills every release must ship; new ones are fine.
 SKILLS = {"aso-setup", "aso-today", "aso-gap", "aso-keywords", "aso-listing", "aso-stats", "aso-code-audit",
-          "aso-ship", "aso-review-fix", "aso-experiment"}
+          "aso-ship", "aso-review-fix", "aso-experiment", "aso-reviews"}
 
 
 @pytest.fixture(autouse=True)
@@ -98,7 +93,7 @@ def test_skills_frontmatter_and_tool_names() -> None:
         assert m.group(1) == p.parent.name
         assert len(m.group(2)) > 80 and "Use when" in m.group(2)
         found[m.group(1)] = text
-    assert set(found) == SKILLS
+    assert set(found) >= SKILLS, SKILLS - set(found)
     for name, text in found.items():
         used = set(re.findall(r"`([a-z_]+)\(", text)) | set(re.findall(r"`([a-z]+_[a-z_]+)`", text))
         assert used - TOOLS == set(), (name, used - TOOLS)

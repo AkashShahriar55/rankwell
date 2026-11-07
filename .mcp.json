@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "rankwell": {
-      "command": "uv",
-      "args": ["run", "--quiet", "--project", "${CLAUDE_PLUGIN_ROOT}", "rankwell", "mcp"]
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/rankwell",
+      "args": ["mcp"]
     }
   }
 }

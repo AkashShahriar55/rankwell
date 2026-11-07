@@ -16,10 +16,10 @@ Explain terms the first time you use them, in one line:
 Use the Rankwell MCP tools named below. For every choice, ask with the AskUserQuestion tool and give options.
 
 ## 1. Check the install
-Run `rankwell doctor` (Bash) from the plugin's environment: `uv run --project "${CLAUDE_PLUGIN_ROOT}" rankwell doctor`.
-Show the result. Fix what you can in order: `uv` missing → `brew install uv`; Xcode tools missing →
-`xcode-select --install` (only needed to upload builds). Lines about apps, key and collection are fixed by
-the steps below.
+`setup_status()` and show its `display`. Fix what you can in order: `uv` missing → `brew install uv` (then
+restart Claude Code); Xcode tools missing → `xcode-select --install` (only needed to upload builds). Lines
+about apps, key, collection and schedule are fixed by the steps below. If "rankwell in the terminal" is
+missing, offer `cli_install()` (it links `~/.local/bin/rankwell`; ask first).
 
 ## 2. App Store Connect key (optional, recommended)
 Without a key Rankwell still tracks public data (ranks, competitors, reviews, charts). The key adds
@@ -29,13 +29,14 @@ Tell the user, step by step:
 1. App Store Connect → Users and Access → Integrations → App Store Connect API → Team Keys → "+".
 2. Name it "Rankwell", role **App Manager**. That is the least access that can read analytics, edit the
    listing and submit builds. Do not use Admin; Finance is not needed.
-3. Download the `.p8` file (Apple allows one download). Copy the **Issuer ID** (top of the page) and note the
-   **Key ID**.
-4. In their own terminal: `rankwell init --asc-key ~/Downloads/AuthKey_XXXXXXXXXX.p8 --issuer-id <issuer id>`
-   (inside the plugin: `uv run --project "${CLAUDE_PLUGIN_ROOT}" rankwell init ...`). The key goes into the
-   macOS Keychain. Afterwards the `.p8` can be deleted or stored somewhere safe.
+3. Download the `.p8` file (Apple allows one download). Copy the **Issuer ID** (top of the page).
+4. Ask for the path of the `.p8` file (they can drag it into the chat) and the issuer id, then ask
+   "Save this key in your Keychain?" and on yes call `asc_key_save(key_path, issuer_id)`. Rankwell reads the
+   file itself; the key id comes from the file name `AuthKey_<KEY ID>.p8`. Afterwards the `.p8` can be deleted
+   or stored somewhere safe. In a terminal the same is `rankwell init --asc-key <path> --issuer-id <id>`.
 
-Never ask the user to paste the key, the `.p8` content or the issuer id into chat, and never read `.p8` files.
+Never read, print or quote the `.p8` content, and never ask the user to paste it into chat. The issuer id is
+not a secret.
 
 ## 3. Add the app
 - First check it is not tracked already: `list_apps`. If the session-start context says this repo's bundle id

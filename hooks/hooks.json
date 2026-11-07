@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --quiet --project \"${CLAUDE_PLUGIN_ROOT}\" rankwell hook session-start",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/rankwell\" hook session-start",
             "timeout": 10
           }
         ]

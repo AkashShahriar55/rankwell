@@ -1,0 +1,19 @@
+#!/bin/sh
+# Starts Rankwell from this plugin folder. Claude Code runs it for the MCP server and the session-start hook.
+# It finds uv even when the app was opened from the Dock with a short PATH, and explains what to do without it.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+UV="$(command -v uv 2>/dev/null)"
+if [ -z "$UV" ] && [ -z "$RANKWELL_NO_UV_SEARCH" ]; then  # the switch is for tests
+  for p in "$HOME/.local/bin/uv" "$HOME/.cargo/bin/uv" /opt/homebrew/bin/uv /usr/local/bin/uv; do
+    if [ -x "$p" ]; then UV="$p"; break; fi
+  done
+fi
+if [ -z "$UV" ]; then
+  if [ "$1" = "hook" ]; then
+    printf '%s\n' '{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "Rankwell is installed but cannot start: uv is missing. Tell the user to install it (brew install uv, or curl -LsSf https://astral.sh/uv/install.sh | sh) and restart Claude Code."}}'
+    exit 0
+  fi
+  echo "Rankwell needs uv: brew install uv (or curl -LsSf https://astral.sh/uv/install.sh | sh), then restart Claude Code." >&2
+  exit 127
+fi
+exec "$UV" run --quiet --project "$ROOT" rankwell "$@"

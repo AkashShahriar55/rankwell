@@ -88,6 +88,32 @@ def register(mcp: MCPServer) -> None:
 
     @mcp.tool()
     @safe
+    def plan_listing_languages(app: str, by_locale: dict[str, dict[str, str]] | None = None,
+                               locales: list[str] | None = None) -> dict[str, Any]:
+        """Plan a metadata change for several languages in one plan: by_locale = {"en-US": {fields}, "de-DE":
+        {fields}}, or locales = [...] to use each language's saved draft. Same fields and limits as plan_listing;
+        every language is checked before anything is read. Show the plan, ask, then apply_plan (all languages are
+        re-checked against App Store Connect and applied together)."""
+        a = apps.get(db(), app)
+        want = {k: dict(v) for k, v in (by_locale or {}).items()}
+        for loc in locales or []:
+            if loc not in want:
+                want[loc] = listing.draft(db(), a["id"], loc)
+                if not want[loc]:
+                    raise RankwellError(f"No draft for {loc} (listing_draft_save).")
+        if not want:
+            raise RankwellError("Give by_locale, or locales that have saved drafts.")
+        problems = {loc: listing.check(f, _tracked(a), a.get("genre_id")) for loc, f in want.items()}
+        plan = listing.plan_listing_locales(db(), listing.connect(), a, want)
+        out = listing.present(plan)
+        flagged = {loc: r for loc, r in problems.items() if r["problems"] or r["tips"]}
+        if flagged:
+            out["check"] = flagged
+            out["display"] += "".join(f"\n\n**{loc}**\n" + listing.check_display(r) for loc, r in flagged.items())
+        return out
+
+    @mcp.tool()
+    @safe
     def plan_create_version(app: str, version: str) -> dict[str, Any]:
         """Plan a new iOS version in preparation (e.g. '1.3'), needed before name, subtitle, keywords or
         description can change. Show the plan to the user and ask before calling apply_plan."""
