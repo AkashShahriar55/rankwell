@@ -16,9 +16,10 @@ TOOLS = {
     "plan_create_version", "release_check", "build_start", "build_status", "plan_upload", "plan_attach_build",
     "plan_review_info", "plan_submit", "review_status", "rejection_record", "aso_context", "aso_init", "aso_note",
     "experiment_open", "experiment_close", "experiments_due", "code_audit", "knowledge_rules",
+    "screenshots_live", "screenshots_scan", "plan_screenshots",
 }
 SKILLS = {"aso-setup", "aso-today", "aso-gap", "aso-keywords", "aso-listing", "aso-stats", "aso-code-audit",
-          "aso-ship", "aso-review-fix", "aso-experiment"}
+          "aso-ship", "aso-review-fix", "aso-experiment", "aso-screenshots"}
 
 
 @pytest.fixture(autouse=True)
