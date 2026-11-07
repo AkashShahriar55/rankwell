@@ -16,9 +16,11 @@ TOOLS = {
     "plan_create_version", "release_check", "build_start", "build_status", "plan_upload", "plan_attach_build",
     "plan_review_info", "plan_submit", "review_status", "rejection_record", "aso_context", "aso_init", "aso_note",
     "experiment_open", "experiment_close", "experiments_due", "code_audit", "knowledge_rules",
+    "play_listing_live", "play_listing_check", "play_plan_listing", "play_tracks", "play_plan_upload",
+    "play_reviews", "play_plan_review_reply",
 }
 SKILLS = {"aso-setup", "aso-today", "aso-gap", "aso-keywords", "aso-listing", "aso-stats", "aso-code-audit",
-          "aso-ship", "aso-review-fix", "aso-experiment"}
+          "aso-ship", "aso-review-fix", "aso-experiment", "aso-play"}
 
 
 @pytest.fixture(autouse=True)

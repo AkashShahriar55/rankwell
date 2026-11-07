@@ -70,6 +70,9 @@ def doctor() -> None:
          f"Last collection: {last['started_at'] + ' ' + last['status'] if last else 'never'}",
          "rankwell collect, then rankwell schedule install")
     line(shutil.which("xcrun") is not None, "Xcode command line tools (for build upload)", "xcode-select --install")
+    play_ok = secrets.has_play_key()  # optional: only for apps on Google Play, so it never fails doctor
+    click.echo(("✓ " if play_ok else "· ") + "Google Play key (optional)"
+               + ("" if play_ok else "\n    → rankwell play init --key <service-account.json>"))
     sys.exit(0 if ok else 1)
 
 
