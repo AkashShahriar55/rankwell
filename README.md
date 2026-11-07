@@ -1,95 +1,38 @@
 <div align="center">
 
-# Rankwell
+<img src="assets/cover.png" alt="Rankwell: App Store Optimization and release automation, inside Claude Code" width="100%">
 
-**App Store Optimization and release automation, inside Claude Code.**
+<br>
 
-Know where your app stands, decide what to change, and ship the change, from the same chat where you write
-the code.
+[![CI](https://github.com/AkashShahriar55/rankwell/actions/workflows/ci.yml/badge.svg)](https://github.com/AkashShahriar55/rankwell/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/AkashShahriar55/rankwell?color=3ddc97)](https://github.com/AkashShahriar55/rankwell/releases) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB.svg) ![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg) ![Stores](https://img.shields.io/badge/stores-App%20Store%20%7C%20Google%20Play-black.svg)
 
-[![CI](https://github.com/AkashShahriar55/rankwell/actions/workflows/ci.yml/badge.svg)](https://github.com/AkashShahriar55/rankwell/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB.svg)
-![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)
-![Stores: App Store and Google Play](https://img.shields.io/badge/stores-App%20Store%20%7C%20Google%20Play-black.svg)
-
-[Install](#install) · [What you can ask](#what-you-can-ask) · [How it works](#how-it-works) ·
-[Safety](#safety) · [Command line](#command-line) · [FAQ](#faq)
+**[Quick start](#quick-start)** · **[Skills](#skills)** · **[How it works](#how-it-works)** ·
+**[Safety](#safety)** · **[Command line](#command-line)** · **[FAQ](#faq)**
 
 </div>
 
 ---
 
-Most ASO tools are dashboards you have to remember to open, and most release tools stop at the upload.
-Rankwell is a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin that does both jobs where
-you already work:
+**App Store Optimization and release automation for indie developers, inside Claude Code.**
 
-- **It watches.** A daily job tracks keyword ranks, your listing and your competitors' listings, reviews,
-  category charts and App Store Connect analytics, and keeps the history on your Mac.
-- **It advises with evidence.** Gap reports, keyword research and listing copy come with the numbers behind
-  them and cite the ASO rule they follow.
-- **It ships.** Listing changes, screenshots, review replies, builds, submissions and Google Play releases go
-  out through a plan you approve in chat: current value → new value, then your yes.
-- **It remembers.** Decisions, experiments and progress live in a `.aso/` folder in each app repo, so the
-  next session starts where the last one stopped.
+Most ASO tools are dashboards you forget to open, and most release tools stop at the upload. Rankwell is a
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin that does both jobs where you already
+write the code:
+
+- **Watches.** A daily job tracks keyword ranks, your listing and your competitors', reviews, category charts
+  and App Store Connect analytics, and keeps the history on your Mac.
+- **Advises with evidence.** Gap reports, keyword research and listing copy come with the numbers behind them
+  and cite the ASO rule they follow.
+- **Ships.** Listings, screenshots, review replies, builds, submissions and Google Play releases go out through
+  a plan you approve in chat.
+- **Remembers.** Decisions, experiments and progress live in a `.aso/` folder in each app repo, so the next
+  session starts where the last one stopped.
 
 > **Status:** early development (0.x). iOS App Store and Google Play. macOS only.
 
-## Example
+## Quick start
 
-```text
-You:      how is NorthStar doing?
-
-Rankwell: NorthStar · last 7 days (US)
-
-          | keyword            | rank | change | trend    |
-          |--------------------|------|--------|----------|
-          | habit tracker      |   38 |    +9  | ▁▂▃▃▅▆▇  |
-          | streak app         |   12 |    +2  | ▃▃▄▄▅▅▆  |
-          | daily goals        |    – |   out  | ▆▅▃▂▁    |
-
-          Page views 1,204 (+14%) · conversion 31% · rating 4.6 (128)
-          A competitor changed its subtitle to "Habit Tracker & Streaks" on Tuesday.
-
-          Next: 1. Answer the 2 new one-star reviews  2. Move "streaks" into the subtitle
-                3. Close experiment EXP-004 (due today)
-```
-
-*Illustrative output for a sample app.*
-
-## What you can ask
-
-| You say | What happens |
-|---|---|
-| "set up Rankwell for my app" | Checks the install, stores your key, adds the app, finds competitors, seeds keywords, runs the first collection |
-| "how is my app doing?" | What moved in ranks, ratings, reviews, competitors and the funnel, and the next one to three actions |
-| "what does my app lack against competitors?" | Strengths and weaknesses with evidence, competitor complaints, estimated downloads |
-| "which keywords should I target?" | Ideas with App Store popularity, Google demand, difficulty and who owns the top 10 |
-| "write my listing" · "change the subtitle" | Options with reasons, checks against limits, a current → new plan for one or many languages |
-| "upload these screenshots" | Checks sizes, transparency and count, then uploads and orders them per device size |
-| "reply to my bad reviews" | Finds unanswered low ratings, groups them by problem, drafts replies, posts after your yes |
-| "what should I change in the code for ASO?" | Audits the app repo: permission texts, rating prompt, display name, localizations, privacy manifest |
-| "ship 1.2" | Checks what Apple needs, builds, uploads, attaches the build, fills review info and submits |
-| "the app got rejected" | Maps Apple's message to the guideline, plans the fix and resubmits |
-| "release on Google Play" | Updates the Play listing, uploads the .aab to a track with a staged rollout, replies to Play reviews |
-| "show downloads for the last 30 days" | Funnel, ranks, visibility, ratings and charts as tables and sparklines |
-| "did the new subtitle work?" | Opens and judges experiments against their baseline |
-
-Each row is a skill in [`skills/`](skills) that Claude follows step by step.
-
-## Install
-
-**Requirements**
-
-- macOS with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [uv](https://docs.astral.sh/uv/)
-  (`brew install uv`)
-- Xcode command line tools, for building and uploading iOS apps
-- An [App Store Connect API key](https://developer.apple.com/documentation/appstoreconnectapi/creating-api-keys-for-app-store-connect-api)
-  with the App Manager role, for analytics, metadata, reviews and releases. Public data (ranks, competitors,
-  keywords) works without one.
-- Optional: a Google Play service account with access to your apps
-
-**Add the plugin**
+**1. Install the plugin**
 
 ```bash
 claude plugin marketplace add AkashShahriar55/rankwell
@@ -99,8 +42,36 @@ claude plugin marketplace add AkashShahriar55/rankwell
 claude plugin install rankwell@rankwell
 ```
 
-Restart Claude Code, open your app's repo and say **"set up Rankwell for my app"**. Setup asks for the path
-of your `.p8` key file and stores the key in the macOS Keychain; its content never enters the chat.
+**2. Restart Claude Code, open your app's repo and ask:**
+
+```text
+"Set up Rankwell for my app"
+```
+
+Setup checks the install, stores your App Store Connect key in the macOS Keychain (you give the path of the
+`.p8` file; its content never enters the chat), adds the app and its competitors, picks keywords and runs the
+first collection.
+
+**3. Then just ask:**
+
+```text
+"How is my app doing?"
+"What does my app lack against its competitors?"
+"Which keywords should I target for a habit tracker?"
+"Change the subtitle and add German"
+"Upload the screenshots in ./shots"
+"Reply to my one-star reviews"
+"What should I change in the code before release?"
+"Ship 1.4"
+"The app got rejected under guideline 2.1"
+"Upload the Android build to the internal track"
+"Did the new subtitle work?"
+```
+
+**Requirements:** macOS, [uv](https://docs.astral.sh/uv/) (`brew install uv`), Xcode command line tools for
+iOS builds, and an [App Store Connect API key](https://developer.apple.com/documentation/appstoreconnectapi/creating-api-keys-for-app-store-connect-api)
+with the App Manager role. Public data (ranks, competitors, keywords) works without a key. Google Play needs a
+service account with access to your apps.
 
 <details>
 <summary>Set up from a terminal instead</summary>
@@ -121,6 +92,55 @@ Inside Claude Code the command lives in the plugin folder; `rankwell install-cli
 `~/.local/bin/rankwell` so it works in any terminal and survives plugin updates.
 
 </details>
+
+## See it work
+
+Every change to your store listing is a plan you approve. Nothing is sent before your yes.
+
+<img src="assets/flow.png" alt="Rankwell plans a subtitle and keyword change in two languages, the user approves it, and it is applied and logged" width="100%">
+
+## Skills
+
+Each skill is a playbook in [`skills/`](skills) that Claude follows step by step. You never call them by
+name; just ask.
+
+### Know where you stand
+
+| Skill | What it does |
+|---|---|
+| [`aso-today`](skills/aso-today) | Daily briefing: what moved in ranks, ratings, reviews and competitors, and the next one to three actions |
+| [`aso-stats`](skills/aso-stats) | Ranks, visibility, impressions, page views, downloads, conversion and charts over any period, as tables and sparklines |
+| [`aso-gap`](skills/aso-gap) | Strengths and weaknesses against competitors with evidence: listing, ratings, keywords, complaints, estimated downloads |
+
+### Grow
+
+| Skill | What it does |
+|---|---|
+| [`aso-keywords`](skills/aso-keywords) | Ideas from autocomplete, App Store popularity, Google demand, difficulty and who owns the top 10 |
+| [`aso-listing`](skills/aso-listing) | Name, subtitle, keywords, description, promo text and What's New: options, limit checks, one plan for many languages |
+| [`aso-screenshots`](skills/aso-screenshots) | Checks sizes, transparency and count, then uploads, replaces and orders screenshots per device size |
+| [`aso-experiment`](skills/aso-experiment) | Opens an experiment with a baseline when something changes, and judges it on its check date |
+
+### Reviews and code
+
+| Skill | What it does |
+|---|---|
+| [`aso-reviews`](skills/aso-reviews) | Finds unanswered low ratings, groups them by problem, drafts replies and posts them after your yes |
+| [`aso-code-audit`](skills/aso-code-audit) | Audits the app repo: permission texts, rating prompt, display name, localizations, privacy manifest, deep links |
+
+### Ship
+
+| Skill | What it does |
+|---|---|
+| [`aso-ship`](skills/aso-ship) | Checks what Apple needs, builds (Flutter, Xcode, fastlane or your command), uploads, attaches, fills review info, submits |
+| [`aso-review-fix`](skills/aso-review-fix) | Maps a rejection to the guideline, plans the fix and resubmits |
+| [`aso-play`](skills/aso-play) | Google Play listing, .aab upload to a track with staged rollout, Play reviews and replies |
+
+### Set up
+
+| Skill | What it does |
+|---|---|
+| [`aso-setup`](skills/aso-setup) | Install check, key, app, competitors, keywords, first collection and the daily schedule |
 
 ## How it works
 

@@ -1,0 +1,59 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  :root { --bg:#0a0e13; --panel:#111821; --line:#1f2a36; --ink:#e8eef5; --mute:#8696a8; --green:#3ddc97;
+          --amber:#ffb547; --red:#ff6b6b; --blue:#6cb6ff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { width:1280px; height:600px; background:var(--bg); overflow:hidden;
+    font-family:-apple-system,"SF Pro Display","Helvetica Neue",sans-serif; color:var(--ink); }
+  .bg { position:absolute; inset:0;
+    background: radial-gradient(900px 500px at 50% 0%, rgba(61,220,151,.10), transparent 60%),
+      linear-gradient(var(--line) 1px, transparent 1px) 0 0/40px 40px,
+      linear-gradient(90deg, var(--line) 1px, transparent 1px) 0 0/40px 40px;
+    mask-image: radial-gradient(1100px 700px at 50% 40%, #000 35%, transparent 100%); }
+  .steps { position:absolute; top:34px; left:0; right:0; display:flex; justify-content:center; gap:14px; }
+  .step { font:600 15px -apple-system,sans-serif; padding:8px 16px; border-radius:999px; border:1px solid #2a3949;
+    background:rgba(17,24,33,.85); color:#c9d4e0; }
+  .step b { color:var(--green); margin-right:6px; }
+  .arrow { color:#3a4a5c; font-size:18px; align-self:center; }
+  .term { position:absolute; left:110px; right:110px; top:92px; bottom:40px; border-radius:14px;
+    background:var(--panel); border:1px solid #243243; box-shadow:0 30px 80px rgba(0,0,0,.55); }
+  .bar { height:38px; display:flex; align-items:center; gap:8px; padding:0 16px; border-bottom:1px solid var(--line); }
+  .bar i { width:12px; height:12px; border-radius:50%; }
+  .bar i:nth-child(1){background:#ff5f57} .bar i:nth-child(2){background:#febc2e} .bar i:nth-child(3){background:#28c840}
+  .bar span { margin-left:10px; font:13px Menlo,monospace; color:var(--mute); }
+  pre { font:14.5px/1.6 Menlo,monospace; padding:18px 26px; color:#cfd9e4; white-space:pre; }
+  .you { color:var(--blue); } .g { color:var(--green); } .a { color:var(--amber); } .r { color:var(--red); }
+  .m { color:var(--mute); } .w { color:#fff; font-weight:700; } .s { text-decoration:line-through; color:#93a1b1; }
+  .q { color:#fff; background:#1a2633; padding:1px 6px; border-radius:4px; }
+  .sel { color:#062016; background:var(--green); padding:1px 8px; border-radius:4px; font-weight:700; }
+</style></head>
+<body>
+  <div class="bg"></div>
+  <div class="steps">
+    <div class="step"><b>1</b>Ask</div><div class="arrow">→</div>
+    <div class="step"><b>2</b>Plan: current → new</div><div class="arrow">→</div>
+    <div class="step"><b>3</b>Your yes</div><div class="arrow">→</div>
+    <div class="step"><b>4</b>Re-checked, applied, logged</div>
+  </div>
+  <div class="term">
+    <div class="bar"><i></i><i></i><i></i><span>claude · northstar-app</span></div>
+<pre><span class="you">› put "habit tracker" in the subtitle and add German</span>
+
+<span class="w">Plan</span> <span class="m">listing-3f9a · expires in 30 min · re-checked against App Store Connect before applying</span>
+
+<span class="m">where          locale  field      current                    new</span>
+App info       en-US   subtitle   <span class="s">Daily Goals Made Easy</span>      <span class="g">Habit Tracker &amp; Streaks</span>
+Version 1.4    en-US   keywords   <span class="s">goals,daily,routine</span>        <span class="g">streak,routine,goals,daily</span>
+App info       de-DE   subtitle   <span class="m">(empty)</span>                    <span class="g">Gewohnheiten &amp; Streaks</span>
+Version 1.4    de-DE   keywords   <span class="m">(empty)</span>                    <span class="g">gewohnheit,tracker,ziele</span>
+
+<span class="m">notes</span>  de-DE is a new language for version 1.4; it will be added.
+       Name, subtitle and keywords go live when version 1.4 is released.
+
+<span class="q">? Apply these changes to App Store Connect?</span>   <span class="sel">Apply</span>   Change something   Not now
+
+<span class="g">✓</span> Applied 4 changes in 2 languages · recorded in the audit log
+<span class="g">✓</span> Experiment <span class="w">EXP-005</span> opened · baseline rank #38 · check on Nov 21</pre>
+  </div>
+</body></html>

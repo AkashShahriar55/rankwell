@@ -1,0 +1,85 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  :root { --bg:#0a0e13; --panel:#111821; --line:#1f2a36; --ink:#e8eef5; --mute:#8696a8; --green:#3ddc97;
+          --amber:#ffb547; --red:#ff6b6b; --blue:#6cb6ff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { width:1280px; height:640px; background:var(--bg); overflow:hidden;
+    font-family:-apple-system,"SF Pro Display","Helvetica Neue",sans-serif; color:var(--ink); }
+  .bg { position:absolute; inset:0;
+    background:
+      radial-gradient(900px 500px at 82% 30%, rgba(61,220,151,.13), transparent 60%),
+      radial-gradient(700px 500px at 10% 100%, rgba(108,182,255,.10), transparent 60%),
+      linear-gradient(var(--line) 1px, transparent 1px) 0 0/40px 40px,
+      linear-gradient(90deg, var(--line) 1px, transparent 1px) 0 0/40px 40px;
+    opacity:.9; mask-image: radial-gradient(1200px 700px at 50% 50%, #000 40%, transparent 100%); }
+  .left { position:absolute; left:72px; top:96px; width:520px; }
+  .mark { display:flex; align-items:flex-end; gap:6px; height:46px; margin-bottom:28px; }
+  .mark i { display:block; width:12px; border-radius:3px; background:var(--green); }
+  .mark i:nth-child(1){height:16px;opacity:.45} .mark i:nth-child(2){height:26px;opacity:.65}
+  .mark i:nth-child(3){height:36px;opacity:.85} .mark i:nth-child(4){height:46px}
+  h1 { font-size:84px; font-weight:800; letter-spacing:-3px; line-height:1; }
+  h1 span { color:var(--green); }
+  .tag { margin-top:22px; font-size:27px; line-height:1.35; color:#c9d4e0; font-weight:500; letter-spacing:-.3px; }
+  .chips { margin-top:34px; display:flex; flex-wrap:wrap; gap:10px; max-width:480px; }
+  .chip { font-size:15px; font-weight:600; color:var(--ink); padding:8px 14px; border-radius:999px;
+    border:1px solid #2a3949; background:rgba(17,24,33,.8); }
+  .chip b { color:var(--green); font-weight:700; }
+  .term { position:absolute; right:64px; top:52px; width:560px; border-radius:14px; background:var(--panel);
+    border:1px solid #243243; box-shadow:0 30px 80px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.02) inset; }
+  .bar { height:38px; display:flex; align-items:center; gap:8px; padding:0 16px; border-bottom:1px solid var(--line); }
+  .bar i { width:12px; height:12px; border-radius:50%; background:#2b3846; }
+  .bar i:nth-child(1){background:#ff5f57} .bar i:nth-child(2){background:#febc2e} .bar i:nth-child(3){background:#28c840}
+  .bar span { margin-left:10px; font:13px Menlo,monospace; color:var(--mute); }
+  pre { font:14.5px/1.62 Menlo,monospace; padding:18px 22px 20px; color:#cfd9e4; white-space:pre; }
+  .you { color:var(--blue); } .g { color:var(--green); } .a { color:var(--amber); } .r { color:var(--red); }
+  .m { color:var(--mute); } .w { color:#fff; font-weight:700; }
+  .plan { position:absolute; right:28px; bottom:30px; width:340px; border-radius:12px; background:#0f1620;
+    border:1px solid #2c3d50; box-shadow:0 20px 60px rgba(0,0,0,.6); padding:14px 16px; }
+  .plan h4 { font:600 12px -apple-system,sans-serif; letter-spacing:1.2px; color:var(--mute); text-transform:uppercase; }
+  .row { margin-top:7px; font:13px/1.4 Menlo,monospace; }
+  .old { color:#93a1b1; text-decoration:line-through; text-decoration-color:rgba(255,107,107,.7); }
+  .new { color:var(--green); }
+  .btns { margin-top:11px; display:flex; gap:8px; }
+  .btn { font:600 13px -apple-system,sans-serif; padding:7px 14px; border-radius:8px; border:1px solid #2c3d50; color:#c9d4e0; }
+  .btn.y { background:var(--green); color:#062016; border-color:var(--green); }
+</style></head>
+<body>
+  <div class="bg"></div>
+  <div class="left">
+    <div class="mark"><i></i><i></i><i></i><i></i></div>
+    <h1>Rank<span>well</span></h1>
+    <p class="tag">App Store Optimization and release automation, inside Claude Code.</p>
+    <div class="chips">
+      <div class="chip"><b>↑</b> Rank tracking</div>
+      <div class="chip">Competitor gaps</div>
+      <div class="chip">Keywords</div>
+      <div class="chip">Listings &amp; screenshots</div>
+      <div class="chip">Review replies</div>
+      <div class="chip">iOS &amp; Google Play releases</div>
+    </div>
+  </div>
+  <div class="term">
+    <div class="bar"><i></i><i></i><i></i><span>claude · northstar-app</span></div>
+<pre><span class="you">› how is NorthStar doing?</span>
+
+<span class="w">NorthStar</span> <span class="m">· last 7 days · US</span>
+
+<span class="m">keyword          rank  change  trend</span>
+habit tracker      38   <span class="g">  +9 </span>  <span class="g">▁▂▃▃▅▆▇</span>
+streak app         12   <span class="g">  +2 </span>  <span class="g">▃▃▄▄▅▅▆</span>
+daily goals         –   <span class="r"> out </span>  <span class="r">▆▅▃▂▁  </span>
+
+page views <span class="w">1,204</span> <span class="g">+14%</span> · conversion <span class="w">31%</span> · ★ <span class="w">4.6</span>
+<span class="a">!</span> competitor changed its subtitle on Tuesday
+
+<span class="m">next</span>  1 answer 2 new one-star reviews
+      2 move "streaks" into the subtitle</pre>
+  </div>
+  <div class="plan">
+    <h4>Plan · App Store Connect</h4>
+    <div class="row"><span class="m">subtitle </span><span class="old">Daily Goals Made Easy</span></div>
+    <div class="row"><span class="m">       → </span><span class="new">Habit Tracker &amp; Streaks</span></div>
+    <div class="btns"><div class="btn y">Apply</div><div class="btn">Change</div><div class="btn">Not now</div></div>
+  </div>
+</body></html>
