@@ -62,6 +62,17 @@ writes anything.
 
 [docs/CONTRACT.md](docs/CONTRACT.md) lists module owners, tool names and conventions.
 
+## How a contribution gets in
+
+1. **Open an issue first** for anything bigger than a small fix, so we agree on the approach before you write
+   code. Issues labelled `good first issue` are a good start.
+2. **Fork the repository** and work on a branch in your fork.
+3. **Open a pull request** against `main`. CI runs once a maintainer approves the workflow run for your first
+   contribution.
+4. **Review.** The maintainer reviews every pull request; `main` only changes through an approved pull request
+   with green checks. Expect questions and requested changes; that is normal.
+5. **Merge.** The maintainer merges (usually squashed into one commit).
+
 ## Pull requests
 
 - One topic per pull request, with tests for the behaviour it adds or fixes.
