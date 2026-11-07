@@ -11,6 +11,7 @@ import contextlib
 import datetime as dt
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -27,6 +28,7 @@ STDIN_BUDGET = 0.3  # seconds; the hook input is tiny and arrives at once
 STDIN_MAX = 1_000_000
 COLLECT_LOCK = "collect.lock"  # collect.LOCK_NAME; not imported because collect pulls in the network stack
 LISTING_FIELDS = ("title", "subtitle", "description", "screenshots")
+BUNDLE_RE = re.compile(r"PRODUCT_BUNDLE_IDENTIFIER\s*=\s*([^;\s]+)\s*;")
 SETUP_HINT = ("Rankwell (App Store Optimization assistant) is installed but has no apps yet. When the user wants "
               "ASO or App Store help, start with the aso-setup skill (the user can say \"set up Rankwell\").")
 
@@ -198,7 +200,7 @@ def _context(conn: sqlite3.Connection, cwd: Path, day: dt.date) -> str:
     if "apps" not in tables:
         return SETUP_HINT
     rows = [dict(r) for r in conn.execute(
-        "SELECT id, slug, name, store_id, repo_path FROM apps WHERE archived_at IS NULL ORDER BY id")]
+        "SELECT id, slug, name, store_id, bundle_id, repo_path FROM apps WHERE archived_at IS NULL ORDER BY id")]
     if not rows:
         return SETUP_HINT
     lines: list[str] = []
@@ -220,12 +222,86 @@ def _context(conn: sqlite3.Connection, cwd: Path, day: dt.date) -> str:
             lines.append(f"Active app in this repo: {a['name']} (slug '{a['slug']}'). Call aso_context('{a['slug']}') "
                          "before ASO work on it.")
             break
+    else:
+        lines += _unlinked_repo(here, rows)
 
     lines += _collection(conn, tables, day)
     lines += _due(rows, day)
     lines += _stale(conn, tables, rows, day)
     lines += _rejections(conn, tables, rows)
     return "\n".join(lines)
+
+
+def _repo_root(cwd: Path) -> Path:
+    """The git root above cwd, or cwd itself outside a git repo."""
+    for d in (cwd, *cwd.parents):
+        if (d / ".git").exists():
+            return d
+    return cwd
+
+
+def _app_kind(root: Path) -> str | None:
+    """'Flutter', 'React Native' or 'Xcode' when root holds an iOS app's code, else None. Only looks at root and
+    root/ios, so it stays fast in big repos."""
+    pubspec = root / "pubspec.yaml"
+    if pubspec.is_file() and (root / "ios").is_dir() and re.search(r"^\s*flutter\s*:", _read(pubspec), re.M):
+        return "Flutter"
+    pkg = root / "package.json"
+    if pkg.is_file() and re.search(r'"(react-native|expo)"\s*:', _read(pkg)):
+        return "React Native"
+    if any(root.glob("*.xcodeproj")) or any(root.glob("*.xcworkspace")):
+        return "Xcode"
+    return None
+
+
+def _bundle_ids(root: Path) -> list[str]:
+    """Main-target bundle ids from the Xcode projects in root and root/ios (tests and extensions dropped:
+    an id that extends another one, like com.x.app.ShareExtension, is not the app's)."""
+    found: set[str] = set()
+    for proj in [*root.glob("*.xcodeproj"), *root.glob("ios/*.xcodeproj")]:
+        pbx = proj / "project.pbxproj"
+        if pbx.is_file():
+            found |= {m.strip('"') for m in BUNDLE_RE.findall(_read(pbx)) if "$(" not in m}
+    return sorted(b for b in found if not any(b.startswith(o + ".") for o in found))
+
+
+def _read(path: Path) -> str:
+    try:
+        return path.read_text(errors="replace")[:5_000_000]
+    except OSError:
+        return ""
+
+
+def _unlinked_repo(here: Path, rows: list[dict[str, Any]]) -> list[str]:
+    """When the session is in an iOS app repo no tracked app is linked to: say so, and point at the tracked app it
+    probably is (same bundle id) or at setup."""
+    git_root = _repo_root(here)
+    root, kind = git_root, _app_kind(git_root)
+    if kind is None and here != git_root:  # an app in a subfolder of a bigger repo
+        root, kind = here, _app_kind(here)
+    if kind is None:
+        return []
+    ids = _bundle_ids(root)
+    shown = f", bundle id {ids[0]}" if len(ids) == 1 else (f", bundle ids {', '.join(ids[:3])}" if ids else "")
+    lines = [f"This folder is an iOS app repo ({kind}, {root}{shown}) that no tracked app is linked to."]
+    match = next((a for a in rows if a["bundle_id"] and a["bundle_id"] in ids), None)
+    if match and match["repo_path"]:
+        lines.append(f"Its bundle id matches {match['name']} (slug '{match['slug']}'), which is linked to "
+                     f"{match['repo_path']}. Ask the user whether to link this folder instead "
+                     f"(update_app('{match['slug']}', repo_path=...)).")
+    elif match:
+        lines.append(f"Its bundle id matches {match['name']} (slug '{match['slug']}'). Offer to link it: "
+                     f"update_app('{match['slug']}', repo_path='{root}').")
+    else:
+        unlinked = [a for a in rows if not a["repo_path"]]
+        if unlinked:
+            names = ", ".join(f"{a['name']} (slug '{a['slug']}')" for a in unlinked[:5])
+            lines.append(f"Tracked apps with no repo linked: {names}. If it is one of them, link it with "
+                         f"update_app(<slug>, repo_path='{root}'" + (f", bundle_id='{ids[0]}'" if len(ids) == 1
+                                                                     else "") + ").")
+        lines.append("If it is a new app, offer the aso-setup skill when the user wants ASO or release help "
+                     "(the user can say \"set up Rankwell for this app\").")
+    return lines
 
 
 def _collection(conn: sqlite3.Connection, tables: set[str], day: dt.date) -> list[str]:

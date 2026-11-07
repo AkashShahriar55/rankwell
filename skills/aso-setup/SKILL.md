@@ -1,6 +1,6 @@
 ---
 name: aso-setup
-description: First-run setup of Rankwell for an iOS app - install check, App Store Connect key, add the app and its repo, find competitors, seed keywords, create the .aso/ folder, first data collection and the daily schedule. Use when the user says "set up Rankwell", "add my app", "track my app", "start ASO for this app", "connect App Store Connect", or when Rankwell has no apps yet.
+description: First-run setup of Rankwell for an iOS app - install check, App Store Connect key, add the app and its repo, find competitors, seed keywords, create the .aso/ folder, first data collection and the daily schedule. Use when the user says "set up Rankwell", "add my app", "track my app", "start ASO for this app", "connect App Store Connect", or when Rankwell has no apps yet or the session started in an app repo no tracked app is linked to.
 ---
 
 # Set up Rankwell
@@ -38,6 +38,9 @@ Tell the user, step by step:
 Never ask the user to paste the key, the `.p8` content or the issuer id into chat, and never read `.p8` files.
 
 ## 3. Add the app
+- First check it is not tracked already: `list_apps`. If the session-start context says this repo's bundle id
+  matches a tracked app, or the user says the repo is one of the tracked apps, link it instead of adding:
+  `update_app(app, repo_path=..., bundle_id=...)`, then skip to step 6 for the `.aso/` folder.
 - Ask: is the app live on the App Store or not released yet?
 - Live: `app_lookup` with its name; show the matches and ask which one is theirs.
 - Repo folder: if the current directory looks like the app's code (`ios/`, `*.xcodeproj`, `pubspec.yaml`,

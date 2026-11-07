@@ -182,3 +182,78 @@ def test_live_collector_is_running(spawned: list[bool]) -> None:
     db = dbmod.Database()
     assert db.value("SELECT status FROM runs") == "running"
     db.close()
+
+
+PBX = """
+    PRODUCT_BUNDLE_IDENTIFIER = com.acme.snap;
+    PRODUCT_BUNDLE_IDENTIFIER = com.acme.snap.RunnerTests;
+    PRODUCT_BUNDLE_IDENTIFIER = "com.acme.snap.ShareExtension";
+    PRODUCT_BUNDLE_IDENTIFIER = "$(PRODUCT_BUNDLE_IDENTIFIER)";
+"""
+
+
+def flutter_repo(root: Path) -> Path:
+    (root / ".git").mkdir(parents=True)
+    (root / "lib").mkdir()
+    (root / "pubspec.yaml").write_text("name: snap\ndependencies:\n  flutter:\n    sdk: flutter\n")
+    proj = root / "ios" / "Runner.xcodeproj"
+    proj.mkdir(parents=True)
+    (proj / "project.pbxproj").write_text(PBX)
+    return root
+
+
+def test_untracked_app_repo_offers_setup(tmp_path: Path, spawned: list[bool]) -> None:
+    repo = flutter_repo(tmp_path / "snap")
+    db = dbmod.Database()
+    apps.add(db, "Other App", store_id=111, repo_path=str(tmp_path / "other"))
+    apps.add(db, "Planned App")
+    db.close()
+    text = context(json.dumps({"cwd": str(repo / "lib")}))
+    assert f"This folder is an iOS app repo (Flutter, {repo.resolve()}, bundle id com.acme.snap)" in text
+    assert "ShareExtension" not in text and "RunnerTests" not in text
+    assert "Tracked apps with no repo linked: Planned App (slug 'planned-app')" in text
+    assert "bundle_id='com.acme.snap'" in text and "aso-setup" in text
+    assert "Active app" not in text
+
+
+def test_bundle_id_match_offers_link(tmp_path: Path, spawned: list[bool]) -> None:
+    repo = flutter_repo(tmp_path / "snap")
+    db = dbmod.Database()
+    a = apps.add(db, "Snap", bundle_id="com.acme.snap")
+    db.close()
+    text = context(json.dumps({"cwd": str(repo)}))
+    assert f"Its bundle id matches Snap (slug '{a['slug']}'). Offer to link it" in text
+    assert "aso-setup" not in text
+
+
+def test_bundle_id_match_linked_elsewhere(tmp_path: Path, spawned: list[bool]) -> None:
+    repo = flutter_repo(tmp_path / "snap-v2")
+    db = dbmod.Database()
+    apps.add(db, "Snap", bundle_id="com.acme.snap", repo_path=str(tmp_path / "snap-old"))
+    db.close()
+    text = context(json.dumps({"cwd": str(repo)}))
+    assert "which is linked to" in text and "Ask the user whether to link this folder instead" in text
+
+
+def test_xcode_app_in_subfolder_of_bigger_repo(tmp_path: Path, spawned: list[bool]) -> None:
+    (tmp_path / "mono" / ".git").mkdir(parents=True)
+    app = tmp_path / "mono" / "ios-app"
+    (app / "Snap.xcodeproj").mkdir(parents=True)
+    (app / "Snap.xcodeproj" / "project.pbxproj").write_text("PRODUCT_BUNDLE_IDENTIFIER = com.acme.snap;")
+    db = dbmod.Database()
+    apps.add(db, "Other App", store_id=111)
+    db.close()
+    text = context(json.dumps({"cwd": str(app)}))
+    assert f"This folder is an iOS app repo (Xcode, {app.resolve()}, bundle id com.acme.snap)" in text
+
+
+def test_non_app_folder_and_linked_repo_say_nothing_extra(tmp_path: Path, spawned: list[bool]) -> None:
+    repo = flutter_repo(tmp_path / "snap")
+    plain = tmp_path / "notes"
+    plain.mkdir()
+    db = dbmod.Database()
+    apps.add(db, "Snap", store_id=111, repo_path=str(repo))
+    db.close()
+    assert "iOS app repo" not in context(json.dumps({"cwd": str(plain)}))
+    text = context(json.dumps({"cwd": str(repo / "lib")}))
+    assert "Active app in this repo: Snap" in text and "no tracked app is linked" not in text

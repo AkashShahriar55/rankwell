@@ -5,6 +5,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-07
+
+### Added
+- Session start in an iOS app repo that no tracked app is linked to (Flutter, React Native or Xcode) now says
+  so, with the repo's bundle id, the tracked app it matches by bundle id, and a link or setup suggestion.
+
+## [0.1.0] - 2026-11-07
+
 ### Added
 - Foundation: SQLite storage with migrations, Keychain secrets, App Store and App Store Connect clients,
   keyword research, terminal rendering, MCP server, `rankwell` CLI, plugin manifest.
