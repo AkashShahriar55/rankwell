@@ -1,0 +1,42 @@
+name: Live check
+
+# Weekly read-only calls to Apple's real endpoints, so a change on Apple's side shows up before a user hits it.
+# App Store Connect checks run only when the repository has these secrets: ASC_ISSUER_ID, ASC_KEY_ID, ASC_P8
+# (the .p8 content). Nothing here writes to App Store Connect.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+      - run: uv sync --locked
+      - name: App Store Connect key from secrets
+        env:
+          ASC_P8: ${{ secrets.ASC_P8 }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          if [ -n "$ASC_P8" ] && [ -n "$ASC_ISSUER_ID" ] && [ -n "$ASC_KEY_ID" ]; then
+            umask 077
+            printf '%s\n' "$ASC_P8" > "$RUNNER_TEMP/asc.p8"
+            {
+              echo "RANKWELL_ASC_ISSUER_ID=$ASC_ISSUER_ID"
+              echo "RANKWELL_ASC_KEY_ID=$ASC_KEY_ID"
+              echo "RANKWELL_ASC_KEY_PATH=$RUNNER_TEMP/asc.p8"
+            } >> "$GITHUB_ENV"
+          else
+            echo "No App Store Connect secrets: only public endpoints are checked."
+          fi
+      - run: uv run pytest -m live -q -s
+      - if: always()
+        run: rm -f "$RUNNER_TEMP/asc.p8"

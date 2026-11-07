@@ -77,3 +77,17 @@ def test_asc_error_is_readable() -> None:
             409, json={"errors": [{"detail": "The version is not editable."}]}))
         with pytest.raises(StoreError, match="409: The version is not editable"):
             client.patch("/v1/apps/1", {})
+
+
+def test_reviews_first_page_has_no_page_segment() -> None:
+    import respx as _respx
+
+    from rankwell.stores import appstore as _appstore
+
+    with _respx.mock() as router:
+        route = router.get(url__regex=r"https://itunes\.apple\.com/us/rss/customerreviews/.*").respond(
+            json={"feed": {"entry": [{"id": {"label": "1"}, "im:rating": {"label": "4"}}]}})
+        assert len(_appstore.reviews(42, "us")) == 1
+        assert str(route.calls[0].request.url).endswith("/us/rss/customerreviews/id=42/sortby=mostrecent/json")
+        _appstore.reviews(42, "us", page=2)
+        assert "/page=2/id=42/" in str(route.calls[1].request.url)

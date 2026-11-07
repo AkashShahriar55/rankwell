@@ -167,6 +167,8 @@ def _collect_app(ctx: _Context, app: apps.App) -> dict[str, Any]:
             res.add("charts", res.step(f"{country} · {kind} chart", _save_chart, ctx, genre, country, kind, ids))
     if app.get("store_id"):
         res.counts["asc"] = res.step("App Store Connect", _analytics, ctx, int(app["store_id"]))
+        if ctx.asc() is not None:
+            res.add("reviews", res.step("App Store Connect · reviews", _asc_reviews, ctx, app))
     return res.summary()
 
 
@@ -192,6 +194,42 @@ def _save_reviews(ctx: _Context, ids: list[int], country: str) -> int:
         rows: list[dict[str, Any]] = ctx.cached(appstore.reviews, sid, country)
         n += ctx.db.upsert("reviews", rows, ["id"])
     return n
+
+
+def _asc_reviews(ctx: _Context, app: apps.App) -> int:
+    """The app's own reviews from App Store Connect, all countries, last two weeks. The public feed stopped
+    serving most requests in November 2026; this is the official source for the user's own apps."""
+    from . import replies  # pulls in the listing module, which the collector does not need otherwise
+
+    client = ctx.asc()
+    if client is None:
+        return 0
+    rows = []
+    for r in replies.asc_reviews(client, app, days=ASC_REVIEW_DAYS, max_rating=5):
+        dup = ctx.db.value("SELECT 1 FROM reviews WHERE store_id = ? AND id NOT LIKE 'asc-%' AND author = ? "
+                           "AND COALESCE(title, '') = ? AND substr(reviewed_at, 1, 10) = substr(?, 1, 10)",
+                           (int(app["store_id"]), r["author"], r["title"], r["created"]))
+        if dup:  # already saved from the public feed
+            continue
+        rows.append({"id": f"asc-{r['review_id']}", "store_id": int(app["store_id"]),
+                     "country": TERRITORIES.get(r["territory"], r["territory"].lower()), "rating": r["rating"],
+                     "title": r["title"], "content": r["body"], "author": r["author"], "version": None,
+                     "reviewed_at": r["created"]})
+    return ctx.db.upsert("reviews", rows, ["id"])
+
+
+# App Store Connect territories (ISO 3166-1 alpha-3) to the two-letter storefront codes the rest of Rankwell
+# uses; the rest are stored lowercased as they come.
+TERRITORIES = {
+    "USA": "us", "GBR": "gb", "CAN": "ca", "AUS": "au", "NZL": "nz", "IRL": "ie", "DEU": "de", "FRA": "fr",
+    "ESP": "es", "ITA": "it", "NLD": "nl", "BEL": "be", "CHE": "ch", "AUT": "at", "SWE": "se", "NOR": "no",
+    "DNK": "dk", "FIN": "fi", "POL": "pl", "PRT": "pt", "CZE": "cz", "GRC": "gr", "HUN": "hu", "ROU": "ro",
+    "TUR": "tr", "RUS": "ru", "UKR": "ua", "ISR": "il", "ARE": "ae", "SAU": "sa", "EGY": "eg", "ZAF": "za",
+    "NGA": "ng", "KEN": "ke", "IND": "in", "PAK": "pk", "BGD": "bd", "LKA": "lk", "NPL": "np", "IDN": "id",
+    "MYS": "my", "SGP": "sg", "THA": "th", "VNM": "vn", "PHL": "ph", "CHN": "cn", "HKG": "hk", "TWN": "tw",
+    "JPN": "jp", "KOR": "kr", "BRA": "br", "MEX": "mx", "ARG": "ar", "CHL": "cl", "COL": "co", "PER": "pe",
+}
+ASC_REVIEW_DAYS = 14
 
 
 def _genre(app: apps.App, found: dict[int, appstore.App]) -> int | None:

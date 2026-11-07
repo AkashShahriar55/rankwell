@@ -58,3 +58,5 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-m 'not live'"
+markers = ["live: calls the real Apple endpoints (read-only); run with -m live"]

@@ -152,3 +152,21 @@ def test_reply_checks(fake: FakeReviews, setup: Any) -> None:
                                 [{"review_id": "1", "text": "Please give us 5 stars at https://x.io"}])
     assert any("rr-no-incentives" in n for n in plan["notes"]) and any("clickable" in n for n in plan["notes"])
     assert replies.check_reply("Thanks, fixed in 1.2.") == []
+
+
+def test_collector_saves_own_reviews_from_asc(fake: FakeReviews, setup: Any) -> None:
+    from types import SimpleNamespace
+
+    from rankwell import collect
+
+    db, app = setup
+    fake.add("1", 2, RECENT.format(5))
+    fake.add("2", 5, RECENT.format(4))
+    fake.reviews["2"]["attributes"]["territory"] = "DEU"
+    db.execute("INSERT INTO reviews (id, store_id, country, rating, title, content, author, reviewed_at) "
+               "VALUES ('rss-9', 100, 'de', 5, 'Bad', 'x', 'x', ?)", (RECENT.format(4),))
+    client = listing.connect()
+    ctx = SimpleNamespace(db=db, asc=lambda: client)
+    assert collect._asc_reviews(ctx, app) == 1  # type: ignore[arg-type]  # review 2 is already in from the feed
+    row = db.one("SELECT * FROM reviews WHERE id = 'asc-1'")
+    assert row and row["country"] == "us" and row["rating"] == 2 and row["content"] == "body 1"

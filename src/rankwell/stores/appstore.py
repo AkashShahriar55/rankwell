@@ -117,8 +117,13 @@ def chart(genre_id: int, country: str = "us", kind: str = "free", limit: int = 1
 
 
 def reviews(store_id: int, country: str = "us", page: int = 1) -> list[dict[str, Any]]:
-    """Newest customer reviews (50 per page, up to 10 pages) from the RSS feed."""
-    url = f"https://itunes.apple.com/{country}/rss/customerreviews/page={page}/id={store_id}/sortby=mostrecent/json"
+    """Newest customer reviews (50 per page) from the RSS feed.
+
+    Since November 2026 the feed answers an empty list when the URL has a page segment, so page 1 goes without
+    one; later pages keep the old form and come back empty until Apple fixes it (tests/test_live.py watches).
+    """
+    seg = "" if page == 1 else f"page={page}/"
+    url = f"https://itunes.apple.com/{country}/rss/customerreviews/{seg}id={store_id}/sortby=mostrecent/json"
     try:
         entries = _json("GET", url).get("feed", {}).get("entry", [])
     except StoreError:
