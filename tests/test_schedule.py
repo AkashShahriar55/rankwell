@@ -135,12 +135,17 @@ class FakeSystemctl:
 class FakeCrontab:
     """Stands in for `crontab`: `-l` lists the stored text, `-` replaces it from stdin."""
 
-    def __init__(self, text: str = "") -> None:
+    def __init__(self, text: str = "", list_error: tuple[int, str] | None = None) -> None:
         self.text = text
+        self.list_error = list_error  # makes `crontab -l` fail for a reason other than "no crontab"
+        self.writes = 0
 
     def __call__(self, args: list[str], stdin: str | None = None) -> tuple[int, str]:
         if args == ["-l"]:
+            if self.list_error:
+                return self.list_error
             return (0, self.text) if self.text else (1, "no crontab for user")
+        self.writes += 1
         self.text = (stdin or "").rstrip("\n")
         return 0, ""
 
@@ -317,3 +322,31 @@ def test_unsupported_platform(tmp_path: Path) -> None:
     assert schedule.status(platform="win32") == {"installed": False}  # a question, so it never raises
     with pytest.raises(RankwellError, match="macOS and Linux"):
         schedule.install("11:00", platform="win32", command=LINUX_CMD)
+
+
+def test_cron_read_failure_never_rewrites_the_crontab(tmp_path: Path) -> None:
+    cron = FakeCrontab("0 3 * * * /usr/bin/other", list_error=(1, "crontab: error reading /var/spool/cron"))
+    with pytest.raises(RankwellError, match="could not be read"):
+        linux_install(tmp_path, systemd=False, cron=cron)
+    assert cron.writes == 0 and cron.text == "0 3 * * * /usr/bin/other"
+    with pytest.raises(RankwellError, match="could not be read"):
+        schedule.uninstall(platform="linux", unit_dir=tmp_path / "units", systemctl=FakeSystemctl(False), crontab=cron)
+    assert cron.writes == 0
+
+
+def test_no_crontab_for_user_counts_as_empty(tmp_path: Path) -> None:
+    cron = FakeCrontab(list_error=(1, "no crontab for mfalme1k0"))
+    linux_install(tmp_path, systemd=False, cron=cron)
+    assert cron.writes == 1 and cron.text.endswith(schedule.CRON_TAG)
+
+
+def test_systemd_install_works_without_a_crontab_program(tmp_path: Path) -> None:
+    cron = FakeCrontab(list_error=(schedule.NOT_FOUND, "crontab not found"))
+    out, _, _ = linux_install(tmp_path, cron=cron)
+    assert out["backend"] == "systemd" and cron.writes == 0
+
+
+def test_status_reports_an_unreadable_crontab_instead_of_raising(tmp_path: Path) -> None:
+    cron = FakeCrontab(list_error=(1, "crontab: error reading /var/spool/cron"))
+    st = schedule.status(platform="linux", unit_dir=tmp_path / "units", systemctl=FakeSystemctl(), crontab=cron)
+    assert st["installed"] is False and "could not be read" in st["cron_error"]

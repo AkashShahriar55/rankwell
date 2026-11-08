@@ -3,7 +3,8 @@
 macOS: a per-user launchd agent. It runs at the configured time and when it is loaded (login, wake after a
 missed time), and the catch-up flag makes extra runs free.
 Linux: a systemd user timer (Persistent=true, so a missed run happens at the next start), falling back to a
-tagged crontab line when systemd --user is not usable. Cron cannot catch up missed runs.
+tagged crontab line when systemd --user is not usable. Cron cannot catch up missed runs. A user timer only runs
+while the user has a session; to run while logged out, enable lingering once: `loginctl enable-linger $USER`.
 
 Every function takes the folder and a command runner (launchctl, systemctl, crontab) so tests never touch
 the real ones.
@@ -41,6 +42,7 @@ Launchctl = Callable[[list[str]], tuple[int, str]]
 Systemctl = Callable[[list[str]], tuple[int, str]]
 # Takes crontab arguments and optional stdin text, returns (exit code, output).
 Crontab = Callable[[list[str], str | None], tuple[int, str]]
+NOT_FOUND = 127  # exit code the runners report when systemctl or crontab is not installed
 
 
 def run_launchctl(args: list[str]) -> tuple[int, str]:
@@ -52,7 +54,7 @@ def run_systemctl(args: list[str]) -> tuple[int, str]:
     try:
         r = subprocess.run(["systemctl", "--user", *args], capture_output=True, text=True, check=False)  # noqa: S603, S607
     except FileNotFoundError:
-        return 127, "systemctl not found"
+        return NOT_FOUND, "systemctl not found"
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
@@ -60,7 +62,7 @@ def run_crontab(args: list[str], stdin: str | None = None) -> tuple[int, str]:
     try:
         r = subprocess.run(["crontab", *args], input=stdin, capture_output=True, text=True, check=False)  # noqa: S603, S607
     except FileNotFoundError:
-        return 127, "crontab not found"
+        return NOT_FOUND, "crontab not found"
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
@@ -353,8 +355,15 @@ def _systemd_usable(systemctl: Systemctl) -> bool:
 
 
 def _read_crontab(crontab: Crontab) -> list[str]:
-    code, out = crontab(["-l"], None)  # exit 1 with "no crontab" when there is none yet
-    return out.splitlines() if code == 0 else []
+    """The user's crontab lines. Only "no crontab for <user>" (and no crontab program at all, where nothing can
+    be rewritten either) counts as empty: any other failure raises, so we never save a crontab built from a
+    list we could not read and wipe the user's own entries."""
+    code, out = crontab(["-l"], None)
+    if code == 0:
+        return out.splitlines()
+    if "no crontab for" in out.lower() or code == NOT_FOUND:
+        return []
+    raise RankwellError(f"crontab could not be read (exit {code}); the schedule was not changed: {out[:300]}")
 
 
 def _write_crontab(crontab: Crontab, lines: list[str]) -> None:
@@ -443,7 +452,11 @@ def _status_linux(*, unit_dir: Path | None, systemctl: Systemctl | None, crontab
             out["enabled"] = enabled == 0
             out["loaded"] = active == 0
         return out
-    for line in _read_crontab(crontab or run_crontab):
+    try:
+        lines = _read_crontab(crontab or run_crontab)
+    except RankwellError as e:
+        return {"installed": False, "cron_error": str(e)}
+    for line in lines:
         if _is_ours(line):
             m = re.match(r"\s*(\d+)\s+(\d+)\s", line)
             at = f"{int(m.group(2)):02d}:{int(m.group(1)):02d}" if m else None
