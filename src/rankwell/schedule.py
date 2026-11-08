@@ -1,8 +1,13 @@
-"""The launchd job for the daily collection: a per-user agent running `rankwell collect --catch-up`.
+"""The scheduled daily collection: `rankwell collect --catch-up`, run once a day.
 
-It runs at the configured time and when it is loaded (login, wake after a missed time), and the catch-up
-flag makes extra runs free. Every function takes the LaunchAgents folder and a launchctl runner so tests
-never touch the real ones.
+macOS: a per-user launchd agent. It runs at the configured time and when it is loaded (login, wake after a
+missed time), and the catch-up flag makes extra runs free.
+Linux: a systemd user timer (Persistent=true, so a missed run happens at the next start), falling back to a
+tagged crontab line when systemd --user is not usable. Cron cannot catch up missed runs. A user timer only runs
+while the user has a session; to run while logged out, enable lingering once: `loginctl enable-linger $USER`.
+
+Every function takes the folder and a command runner (launchctl, systemctl, crontab) so tests never touch
+the real ones.
 """
 
 from __future__ import annotations
@@ -25,8 +30,19 @@ LABEL = "com.rankwell.collect"
 LAUNCHCTL = "/bin/launchctl"
 BASE_PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
+UNIT = "rankwell-collect"
+SERVICE_FILE = f"{UNIT}.service"
+TIMER_FILE = f"{UNIT}.timer"
+CRON_TAG = "# rankwell-collect"
+CRON_NOTE = "Using cron (systemd user timers are not available); cron will not catch up missed days."
+
 # Takes launchctl arguments, returns (exit code, output).
 Launchctl = Callable[[list[str]], tuple[int, str]]
+# Takes `systemctl --user` arguments, returns (exit code, output).
+Systemctl = Callable[[list[str]], tuple[int, str]]
+# Takes crontab arguments and optional stdin text, returns (exit code, output).
+Crontab = Callable[[list[str], str | None], tuple[int, str]]
+NOT_FOUND = 127  # exit code the runners report when systemctl or crontab is not installed
 
 
 def run_launchctl(args: list[str]) -> tuple[int, str]:
@@ -34,8 +50,29 @@ def run_launchctl(args: list[str]) -> tuple[int, str]:
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
+def run_systemctl(args: list[str]) -> tuple[int, str]:
+    try:
+        r = subprocess.run(["systemctl", "--user", *args], capture_output=True, text=True, check=False)  # noqa: S603, S607
+    except FileNotFoundError:
+        return NOT_FOUND, "systemctl not found"
+    return r.returncode, (r.stdout + r.stderr).strip()
+
+
+def run_crontab(args: list[str], stdin: str | None = None) -> tuple[int, str]:
+    try:
+        r = subprocess.run(["crontab", *args], input=stdin, capture_output=True, text=True, check=False)  # noqa: S603, S607
+    except FileNotFoundError:
+        return NOT_FOUND, "crontab not found"
+    return r.returncode, (r.stdout + r.stderr).strip()
+
+
 def launch_agents_dir() -> Path:
     return Path.home() / "Library" / "LaunchAgents"
+
+
+def systemd_user_dir() -> Path:
+    base = os.environ.get("XDG_CONFIG_HOME")
+    return (Path(base) if base else Path.home() / ".config") / "systemd" / "user"
 
 
 def plist_path(agents_dir: Path) -> Path:
@@ -109,6 +146,67 @@ def write_launcher(fallback: list[str]) -> Path:
     return script
 
 
+def _resolve_command(command: list[str] | None) -> list[str]:
+    if command is None:
+        record_root()
+        command = [str(write_launcher(rankwell_command()))]
+    return command
+
+
+# --------------------------------------------------------------------------------------------------- dispatch
+
+
+def current_platform() -> str:
+    """The running OS (sys.platform); a seam so tests can pick a backend without patching sys."""
+    return sys.platform
+
+
+def _backend(platform: str | None, agents_dir: Path | None, launchctl: Launchctl | None) -> str:
+    """'launchd' or 'linux'. An explicit platform wins; passing launchd's folder or runner means launchd."""
+    if platform is None:
+        if agents_dir is not None or launchctl is not None:
+            return "launchd"
+        platform = current_platform()
+    if platform == "darwin":
+        return "launchd"
+    if platform.startswith("linux"):
+        return "linux"
+    raise RankwellError(f"Scheduling is supported on macOS and Linux, not on '{platform}'.")
+
+
+def install(at: str | None = None, *, agents_dir: Path | None = None, launchctl: Launchctl | None = None,
+            command: list[str] | None = None, platform: str | None = None, unit_dir: Path | None = None,
+            systemctl: Systemctl | None = None, crontab: Crontab | None = None) -> dict[str, Any]:
+    """Schedule the daily collection and replace an earlier install."""
+    if _backend(platform, agents_dir, launchctl) == "launchd":
+        return _install_launchd(at, agents_dir=agents_dir, launchctl=launchctl, command=command)
+    return _install_linux(at, unit_dir=unit_dir, systemctl=systemctl, crontab=crontab, command=command)
+
+
+def uninstall(*, agents_dir: Path | None = None, launchctl: Launchctl | None = None,
+              platform: str | None = None, unit_dir: Path | None = None, systemctl: Systemctl | None = None,
+              crontab: Crontab | None = None) -> dict[str, Any]:
+    if _backend(platform, agents_dir, launchctl) == "launchd":
+        return _uninstall_launchd(agents_dir=agents_dir, launchctl=launchctl)
+    return _uninstall_linux(unit_dir=unit_dir, systemctl=systemctl, crontab=crontab)
+
+
+def status(*, agents_dir: Path | None = None, launchctl: Launchctl | None = None, check_loaded: bool = True,
+           platform: str | None = None, unit_dir: Path | None = None, systemctl: Systemctl | None = None,
+           crontab: Crontab | None = None) -> dict[str, Any]:
+    """Installed or not, the time, and (unless check_loaded is False) whether the scheduler has it active."""
+    try:
+        backend = _backend(platform, agents_dir, launchctl)
+    except RankwellError:
+        return {"installed": False}  # nothing can be scheduled here, and status is only ever a question
+    if backend == "launchd":
+        return _status_launchd(agents_dir=agents_dir, launchctl=launchctl, check_loaded=check_loaded)
+    return _status_linux(unit_dir=unit_dir, systemctl=systemctl, crontab=crontab, check_loaded=check_loaded)
+
+
+# --------------------------------------------------------------------------------------------------- launchd
+
+
 def build_plist(at: str, command: list[str], logs: Path) -> dict[str, Any]:
     hour, minute = parse_time(at)
     env = {"PATH": ":".join(dict.fromkeys([str(Path(command[0]).parent), *BASE_PATH.split(":")]))}
@@ -137,15 +235,13 @@ def read_plist(agents_dir: Path) -> dict[str, Any] | None:
     return dict(data) if isinstance(data, dict) else None
 
 
-def install(at: str | None = None, *, agents_dir: Path | None = None, launchctl: Launchctl | None = None,
-            command: list[str] | None = None) -> dict[str, Any]:
+def _install_launchd(at: str | None = None, *, agents_dir: Path | None = None,
+                     launchctl: Launchctl | None = None, command: list[str] | None = None) -> dict[str, Any]:
     """Write the agent and (re)load it. Replaces an earlier install."""
     agents = agents_dir or launch_agents_dir()
     launchctl = launchctl or run_launchctl
     when = at or config.load().collect_at
-    if command is None:
-        record_root()
-        command = [str(write_launcher(rankwell_command()))]
+    command = _resolve_command(command)
     plist = build_plist(when, command, paths.logs_dir())
     agents.mkdir(parents=True, exist_ok=True)
     target = plist_path(agents)
@@ -159,7 +255,7 @@ def install(at: str | None = None, *, agents_dir: Path | None = None, launchctl:
             "log": plist["StandardOutPath"]}
 
 
-def uninstall(*, agents_dir: Path | None = None, launchctl: Launchctl | None = None) -> dict[str, Any]:
+def _uninstall_launchd(*, agents_dir: Path | None = None, launchctl: Launchctl | None = None) -> dict[str, Any]:
     target = plist_path(agents_dir or launch_agents_dir())
     launchctl = launchctl or run_launchctl
     if not target.exists():
@@ -169,9 +265,8 @@ def uninstall(*, agents_dir: Path | None = None, launchctl: Launchctl | None = N
     return {"removed": True, "plist": str(target)}
 
 
-def status(*, agents_dir: Path | None = None, launchctl: Launchctl | None = None,
-           check_loaded: bool = True) -> dict[str, Any]:
-    """Installed or not, the time, and (unless check_loaded is False) whether launchd has it loaded."""
+def _status_launchd(*, agents_dir: Path | None = None, launchctl: Launchctl | None = None,
+                    check_loaded: bool = True) -> dict[str, Any]:
     agents = agents_dir or launch_agents_dir()
     plist = read_plist(agents)
     if plist is None:
@@ -190,3 +285,181 @@ def status(*, agents_dir: Path | None = None, launchctl: Launchctl | None = None
         m = re.search(r"last exit code = (-?\d+)", text)
         out["last_exit"] = int(m.group(1)) if m else None
     return out
+
+
+# --------------------------------------------------------------------------------------------------- linux
+
+
+def _unit_quote(arg: str) -> str:
+    """Quote one word for ExecStart= (systemd expands % and $ itself)."""
+    escaped = arg.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%").replace("$", "$$")
+    return f'"{escaped}"'
+
+
+def _collect_args(command: list[str]) -> list[str]:
+    return [*command, "collect", "--catch-up", "--quiet"]
+
+
+def build_service(command: list[str], logs: Path) -> str:
+    env = [f"PATH={':'.join(dict.fromkeys([str(Path(command[0]).parent), *BASE_PATH.split(':')]))}"]
+    if os.environ.get("RANKWELL_HOME"):
+        env.append(f"RANKWELL_HOME={os.environ['RANKWELL_HOME']}")
+    lines = [
+        "[Unit]",
+        "Description=Rankwell daily collection",
+        "",
+        "[Service]",
+        "Type=oneshot",
+        "ExecStart=" + " ".join(_unit_quote(c) for c in _collect_args(command)),
+        f"WorkingDirectory={paths.home()}",
+        *(f"Environment={_unit_quote(e)}" for e in env),
+        "Nice=10",
+        "IOSchedulingClass=idle",
+        f"StandardOutput=append:{logs / 'collect.log'}",
+        f"StandardError=append:{logs / 'collect.err.log'}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def build_timer(at: str) -> str:
+    hour, minute = parse_time(at)
+    return "\n".join([
+        "[Unit]",
+        "Description=Run the Rankwell daily collection",
+        "",
+        "[Timer]",
+        f"OnCalendar=*-*-* {hour:02d}:{minute:02d}:00",
+        "Persistent=true",
+        "",
+        "[Install]",
+        "WantedBy=timers.target",
+        "",
+    ])
+
+
+def build_cron_line(at: str, command: list[str], logs: Path) -> str:
+    hour, minute = parse_time(at)
+    env = f"RANKWELL_HOME={shlex.quote(os.environ['RANKWELL_HOME'])} " if os.environ.get("RANKWELL_HOME") else ""
+    cmd = " ".join(shlex.quote(c) for c in _collect_args(command))
+    log = shlex.quote(str(logs / "collect.log"))
+    err = shlex.quote(str(logs / "collect.err.log"))
+    body = f"{minute} {hour} * * * {env}{cmd} >> {log} 2>> {err}".replace("%", "\\%")  # % is special in cron
+    return f"{body} {CRON_TAG}"
+
+
+def _systemd_usable(systemctl: Systemctl) -> bool:
+    """False without systemctl or a user session (containers, WSL, ssh without lingering)."""
+    code, _ = systemctl(["show-environment"])
+    return code == 0
+
+
+def _read_crontab(crontab: Crontab) -> list[str]:
+    """The user's crontab lines. Only "no crontab for <user>" (and no crontab program at all, where nothing can
+    be rewritten either) counts as empty: any other failure raises, so we never save a crontab built from a
+    list we could not read and wipe the user's own entries."""
+    code, out = crontab(["-l"], None)
+    if code == 0:
+        return out.splitlines()
+    if "no crontab for" in out.lower() or code == NOT_FOUND:
+        return []
+    raise RankwellError(f"crontab could not be read (exit {code}); the schedule was not changed: {out[:300]}")
+
+
+def _write_crontab(crontab: Crontab, lines: list[str]) -> None:
+    code, out = crontab(["-"], "\n".join(lines) + "\n" if lines else "")
+    if code != 0:
+        raise RankwellError(f"crontab could not save the schedule (exit {code}): {out[:300]}")
+
+
+def _is_ours(line: str) -> bool:
+    return line.rstrip().endswith(CRON_TAG)
+
+
+def _remove_cron(crontab: Crontab) -> bool:
+    lines = _read_crontab(crontab)
+    kept = [ln for ln in lines if not _is_ours(ln)]
+    if len(kept) == len(lines):
+        return False
+    _write_crontab(crontab, kept)
+    return True
+
+
+def _install_linux(at: str | None, *, unit_dir: Path | None, systemctl: Systemctl | None,
+                   crontab: Crontab | None, command: list[str] | None) -> dict[str, Any]:
+    units = unit_dir or systemd_user_dir()
+    systemctl = systemctl or run_systemctl
+    crontab = crontab or run_crontab
+    when = at or config.load().collect_at
+    parse_time(when)  # fail on a bad time before anything is written
+    command = _resolve_command(command)
+    logs = paths.logs_dir()
+    logs.mkdir(parents=True, exist_ok=True)
+
+    if _systemd_usable(systemctl):
+        units.mkdir(parents=True, exist_ok=True)
+        service, timer = units / SERVICE_FILE, units / TIMER_FILE
+        service.write_text(build_service(command, logs))
+        timer.write_text(build_timer(when))
+        code, out = systemctl(["daemon-reload"])
+        if code == 0:
+            code, out = systemctl(["enable", "--now", TIMER_FILE])
+        if code != 0:
+            raise RankwellError(f"systemctl could not enable {TIMER_FILE} (exit {code}): {out[:300]}")
+        _remove_cron(crontab)  # never run twice if an earlier install fell back to cron
+        return {"installed": True, "backend": "systemd", "at": when, "service": str(service),
+                "timer": str(timer), "command": _collect_args(command), "log": str(logs / "collect.log"),
+                "catch_up": True}
+
+    lines = [ln for ln in _read_crontab(crontab) if not _is_ours(ln)]
+    lines.append(build_cron_line(when, command, logs))
+    _write_crontab(crontab, lines)
+    return {"installed": True, "backend": "cron", "at": when, "command": _collect_args(command),
+            "log": str(logs / "collect.log"), "catch_up": False, "note": CRON_NOTE}
+
+
+def _uninstall_linux(*, unit_dir: Path | None, systemctl: Systemctl | None,
+                     crontab: Crontab | None) -> dict[str, Any]:
+    units = unit_dir or systemd_user_dir()
+    systemctl = systemctl or run_systemctl
+    crontab = crontab or run_crontab
+    service, timer = units / SERVICE_FILE, units / TIMER_FILE
+    removed_systemd = service.exists() or timer.exists()
+    if removed_systemd:
+        systemctl(["disable", "--now", TIMER_FILE])  # already stopped is fine
+        service.unlink(missing_ok=True)
+        timer.unlink(missing_ok=True)
+        systemctl(["daemon-reload"])
+    removed_cron = _remove_cron(crontab)
+    return {"removed": removed_systemd or removed_cron, "timer": str(timer), "cron": removed_cron}
+
+
+def _status_linux(*, unit_dir: Path | None, systemctl: Systemctl | None, crontab: Crontab | None,
+                  check_loaded: bool = True) -> dict[str, Any]:
+    units = unit_dir or systemd_user_dir()
+    timer = units / TIMER_FILE
+    if timer.exists():
+        m = re.search(r"^OnCalendar=\*-\*-\* (\d{2}):(\d{2})", timer.read_text(), re.MULTILINE)
+        out: dict[str, Any] = {
+            "installed": True, "backend": "systemd", "at": f"{m.group(1)}:{m.group(2)}" if m else None,
+            "service": str(units / SERVICE_FILE), "timer": str(timer),
+            "log": str(paths.logs_dir() / "collect.log"), "catch_up": True,
+        }
+        if check_loaded:
+            runner = systemctl or run_systemctl
+            enabled, _ = runner(["is-enabled", TIMER_FILE])
+            active, _ = runner(["is-active", TIMER_FILE])
+            out["enabled"] = enabled == 0
+            out["loaded"] = active == 0
+        return out
+    try:
+        lines = _read_crontab(crontab or run_crontab)
+    except RankwellError as e:
+        return {"installed": False, "cron_error": str(e)}
+    for line in lines:
+        if _is_ours(line):
+            m = re.match(r"\s*(\d+)\s+(\d+)\s", line)
+            at = f"{int(m.group(2)):02d}:{int(m.group(1)):02d}" if m else None
+            return {"installed": True, "backend": "cron", "at": at, "log": str(paths.logs_dir() / "collect.log"),
+                    "catch_up": False, "note": CRON_NOTE}
+    return {"installed": False, "timer": str(timer)}

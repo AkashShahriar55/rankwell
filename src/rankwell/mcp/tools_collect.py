@@ -78,7 +78,8 @@ def register(mcp: MCPServer) -> None:
             notes.append("Today has not been collected yet.")
         if missed:
             notes.append(f"Missed days (last 30): {', '.join(missed)}. Past days cannot be filled in.")
-        notes.append(f"Daily job: installed, {job['at']}." if job["installed"]
+        notes.append(f"Daily job: installed, {job['at']}." + (f" {job['note']}" if job.get("note") else "")
+                     if job["installed"]
                      else "Daily job: not installed (`rankwell schedule install --at 11:00`).")
         if not has_key:
             notes.append("No App Store Connect key: impressions, page views and downloads are not collected.")

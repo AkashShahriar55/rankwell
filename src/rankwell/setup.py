@@ -91,9 +91,12 @@ def checks() -> list[dict[str, Any]]:
     last = db.one("SELECT * FROM runs WHERE kind = 'collect' ORDER BY id DESC LIMIT 1")
     add("Last collection", bool(last and last["status"] in ("ok", "partial")),
         f"{last['started_at']} {last['status']}" if last else "never", "rankwell collect (or collect_now)")
-    sched = schedule.status(check_loaded=False) if sys.platform == "darwin" else {"installed": False}
-    add("Daily schedule", bool(sched.get("installed")), f"at {sched['at']}" if sched.get("installed") else "",
-        "rankwell schedule install --at 11:00", optional=True)
+    sched = schedule.status(check_loaded=False)
+    detail = ""
+    if sched.get("installed"):
+        cron = sched.get("backend") == "cron"
+        detail = f"at {sched['at']}" + (", cron: missed days are not caught up" if cron else "")
+    add("Daily schedule", bool(sched.get("installed")), detail, "rankwell schedule install --at 11:00", optional=True)
     add("Xcode command line tools", shutil.which("xcrun") is not None, "for uploading builds",
         "xcode-select --install", optional=True)
     add("Google Play key", secrets.has_play_key(), "only for apps on Google Play",

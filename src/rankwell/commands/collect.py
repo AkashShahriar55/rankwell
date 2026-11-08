@@ -58,14 +58,17 @@ def register(main: click.Group) -> None:
 
     @main.group("schedule")
     def schedule_group() -> None:
-        """The daily collection job (launchd)."""
+        """The daily collection job (launchd on macOS; a systemd user timer or cron on Linux)."""
 
     @schedule_group.command("install")
     @click.option("--at", "at", help="Time of day, HH:MM (default: collect.at in config.toml).")
     def install_cmd(at: str | None) -> None:
         """Run the collection every day at a time, and at login when a day was missed."""
         out = schedule.install(at)
-        click.echo(f"Daily collection at {out['at']} installed ({out['plist']}).")
+        where = out.get("plist") or out.get("timer") or "crontab"
+        click.echo(f"Daily collection at {out['at']} installed ({where}).")
+        if out.get("note"):
+            click.echo(out["note"])
         click.echo(f"Log: {out['log']}")
 
     @schedule_group.command("uninstall")
@@ -81,9 +84,14 @@ def register(main: click.Group) -> None:
         if not out["installed"]:
             click.echo("Not installed. Run: rankwell schedule install --at 11:00")
             return
-        click.echo(f"Installed: daily at {out['at']}, {'loaded' if out.get('loaded') else 'NOT loaded'}"
-                   + (f", last exit {out['last_exit']}" if out.get("last_exit") is not None else ""))
-        click.echo(f"Command: {' '.join(out['command'] or [])}")
+        if out.get("backend") == "cron":  # cron has no loaded state
+            click.echo(f"Installed: daily at {out['at']} (cron)")
+            click.echo(out["note"])
+        else:
+            click.echo(f"Installed: daily at {out['at']}, {'loaded' if out.get('loaded') else 'NOT loaded'}"
+                       + (f", last exit {out['last_exit']}" if out.get("last_exit") is not None else ""))
+        if out.get("command"):
+            click.echo(f"Command: {' '.join(out['command'])}")
         click.echo(f"Log: {out['log']}")
         db = dbmod.Database()
         missed = collect.missed_days(db)
