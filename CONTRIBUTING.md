@@ -5,7 +5,7 @@ organised.
 
 ## Setup
 
-You need macOS, Python 3.11 or newer and [uv](https://docs.astral.sh/uv/).
+You need macOS or Linux, Python 3.11 or newer and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 git clone https://github.com/AkashShahriar55/rankwell.git

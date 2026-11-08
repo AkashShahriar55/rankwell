@@ -1,6 +1,7 @@
 # Set up the Rankwell MCP server
 
-Rankwell runs locally on macOS. It needs [uv](https://docs.astral.sh/uv/) (`brew install uv`) and, for
+Rankwell runs locally on macOS or Linux. It needs [uv](https://docs.astral.sh/uv/) (`brew install uv`, or
+`curl -LsSf https://astral.sh/uv/install.sh | sh`) and, for
 iOS builds and uploads, the Xcode command line tools (`xcode-select --install`).
 
 ## Claude Code (recommended)
@@ -36,12 +37,12 @@ calls `asc_key_save`, which reads the file itself), or run:
 
     rankwell init --asc-key ~/Downloads/AuthKey_XXXXXXXXXX.p8 --issuer-id <issuer id>
 
-The key is stored in the macOS Keychain. Never paste its content into a chat.
+The key is stored in the system keyring (Keychain on macOS, GNOME Keyring or KWallet on Linux). Never paste its content into a chat.
 
 ## Daily collection
     rankwell schedule install --at 11:00
 
-Installs a launchd job that tracks ranks, listings, reviews, charts and analytics every day.
+Installs a daily job (launchd on macOS, a systemd timer or cron on Linux) that tracks ranks, listings, reviews, charts and analytics every day.
 
 ## Update
     uv tool upgrade rankwell

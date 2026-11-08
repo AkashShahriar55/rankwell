@@ -28,3 +28,24 @@ def test_switch_needs_a_real_boolean(tmp_path: Path) -> None:
     assert config.load(f).create_report_requests is True
     f.write_text("")
     assert config.load(f).create_report_requests is True
+
+
+class NoKeyring:
+    """A machine without a keyring backend, like a Linux server with no Secret Service."""
+
+    def get_password(self, service: str, name: str) -> str | None:
+        from keyring.errors import NoKeyringError
+
+        raise NoKeyringError("no backend")
+
+    def set_password(self, service: str, name: str, value: str) -> None:
+        from keyring.errors import NoKeyringError
+
+        raise NoKeyringError("no backend")
+
+
+def test_no_keyring_means_not_configured_with_env_var_hint(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(secrets, "_keyring", lambda: NoKeyring())
+    assert secrets.has_asc_key() is False and secrets.has_play_key() is False
+    with pytest.raises(NotConfigured, match="RANKWELL_ASC_KEY_PATH"):
+        secrets.store_asc_key("issuer", "KEYID", "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----")

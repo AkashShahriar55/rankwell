@@ -304,7 +304,7 @@ def test_cli_init_and_upload(tmp_path: Path, repo: Path, fake: FakePlay) -> None
     f = tmp_path / "sa.json"
     f.write_text(key_json())
     r = CliRunner().invoke(main, ["play", "init", "--key", str(f)])
-    assert r.exit_code == 0 and "saved in the Keychain" in r.output and secrets.has_play_key()
+    assert r.exit_code == 0 and "saved in the system keyring" in r.output and secrets.has_play_key()
     assert "BEGIN" not in r.output
     apps.add(dbmod.Database(), "Snap", play_package=PKG, repo_path=str(repo))
     r = CliRunner().invoke(main, ["play", "upload", "snap", "--track", "beta"], input="n\n")

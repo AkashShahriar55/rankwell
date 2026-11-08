@@ -28,17 +28,17 @@ def register(main: click.Group) -> None:
     @play_group.command("init")
     @click.option("--key", "key_file", type=click.Path(exists=True, dir_okay=False, path_type=Path),
                   help="Service account JSON key with access to your app in Play Console.")
-    @click.option("--remove", is_flag=True, help="Delete the stored key from the Keychain.")
+    @click.option("--remove", is_flag=True, help="Delete the stored key from the system keyring.")
     def init(key_file: Path | None, remove: bool) -> None:
-        """Store (or remove) the Google Play service account key in the Keychain."""
+        """Store (or remove) the Google Play service account key in the system keyring."""
         if remove:
             secrets.delete_play_key()
-            click.echo("Google Play key removed from the Keychain.")
+            click.echo("Google Play key removed from the system keyring.")
             return
         if not key_file:
             raise click.UsageError("Pass --key <service-account.json> (or --remove).")
         key = secrets.store_play_key(key_file)
-        click.echo(f"Google Play key for {key.client_email} saved in the Keychain (service 'rankwell').")
+        click.echo(f"Google Play key for {key.client_email} saved in the system keyring (service 'rankwell').")
         click.echo("You can now delete the JSON file or keep it somewhere safe; Rankwell no longer needs it.")
 
     @play_group.command("tracks")

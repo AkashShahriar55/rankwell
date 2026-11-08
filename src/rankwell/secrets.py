@@ -1,7 +1,9 @@
-"""Secrets: the App Store Connect API key, in the macOS Keychain.
+"""Secrets: the App Store Connect API key and the Google Play key, in the system keyring.
 
-Environment variables win over the Keychain so CI and one-off runs can pass a key without storing it:
-RANKWELL_ASC_ISSUER_ID, RANKWELL_ASC_KEY_ID and RANKWELL_ASC_KEY_PATH (path to the .p8 file).
+macOS uses the Keychain; Linux uses the Secret Service (GNOME Keyring or KWallet). Environment variables win over
+the keyring so CI, servers without a keyring and one-off runs can pass a key without storing it:
+RANKWELL_ASC_ISSUER_ID, RANKWELL_ASC_KEY_ID and RANKWELL_ASC_KEY_PATH (path to the .p8 file), and
+RANKWELL_PLAY_KEY_PATH (path to the service account JSON).
 """
 
 from __future__ import annotations
@@ -29,10 +31,34 @@ class AscKey:
         return f"AscKey(issuer_id={self.issuer_id!r}, key_id={self.key_id!r}, private_key=<hidden>)"
 
 
+NO_KEYRING = ("No system keyring is available (on Linux Rankwell uses the Secret Service: GNOME Keyring or "
+              "KWallet). Set the keys as environment variables instead: RANKWELL_ASC_ISSUER_ID, RANKWELL_ASC_KEY_ID "
+              "and RANKWELL_ASC_KEY_PATH, and RANKWELL_PLAY_KEY_PATH for Google Play.")
+
+
 def _keyring() -> Any:
     import keyring
 
     return keyring
+
+
+def _get(name: str) -> str | None:
+    from keyring.errors import KeyringError
+
+    try:
+        value: str | None = _keyring().get_password(SERVICE, name)
+    except KeyringError as e:
+        raise NotConfigured(NO_KEYRING) from e
+    return value
+
+
+def _set(name: str, value: str) -> None:
+    from keyring.errors import KeyringError
+
+    try:
+        _keyring().set_password(SERVICE, name, value)
+    except KeyringError as e:
+        raise NotConfigured(NO_KEYRING) from e
 
 
 def asc_key() -> AscKey:
@@ -40,10 +66,7 @@ def asc_key() -> AscKey:
     issuer, kid, path = (os.environ.get(f"RANKWELL_ASC_{n}") for n in ("ISSUER_ID", "KEY_ID", "KEY_PATH"))
     if issuer and kid and path:
         return AscKey(issuer, kid, Path(path).expanduser().read_text())
-    kr = _keyring()
-    issuer = kr.get_password(SERVICE, _ISSUER)
-    kid = kr.get_password(SERVICE, _KEY_ID)
-    pk = kr.get_password(SERVICE, _PRIVATE_KEY)
+    issuer, kid, pk = _get(_ISSUER), _get(_KEY_ID), _get(_PRIVATE_KEY)
     if not (issuer and kid and pk):
         raise NotConfigured(
             "No App Store Connect key. Run `rankwell init --asc-key <AuthKey_XXXX.p8> "
@@ -63,10 +86,9 @@ def has_asc_key() -> bool:
 def store_asc_key(issuer_id: str, key_id: str, private_key: str) -> None:
     if "BEGIN PRIVATE KEY" not in private_key:
         raise NotConfigured("That file is not an App Store Connect .p8 private key.")
-    kr = _keyring()
-    kr.set_password(SERVICE, _ISSUER, issuer_id.strip())
-    kr.set_password(SERVICE, _KEY_ID, key_id.strip())
-    kr.set_password(SERVICE, _PRIVATE_KEY, private_key.strip() + "\n")
+    _set(_ISSUER, issuer_id.strip())
+    _set(_KEY_ID, key_id.strip())
+    _set(_PRIVATE_KEY, private_key.strip() + "\n")
 
 
 def delete_asc_key() -> None:
@@ -77,7 +99,7 @@ def delete_asc_key() -> None:
 
 
 # ------------------------------------------------------------------ Google Play
-# The Play Console service account (its JSON key file), as one Keychain entry. RANKWELL_PLAY_KEY_PATH (path to
+# The Play Console service account (its JSON key file), as one keyring entry. RANKWELL_PLAY_KEY_PATH (path to
 # the JSON file) overrides it.
 
 _PLAY = "play_service_account"
@@ -117,7 +139,7 @@ def play_key() -> PlayKey:
         except OSError as e:
             raise NotConfigured(f"RANKWELL_PLAY_KEY_PATH points at a file that cannot be read ({path}).") from e
         return _play_from_json(text)
-    stored = _keyring().get_password(SERVICE, _PLAY)
+    stored = _get(_PLAY)
     if not stored:
         raise NotConfigured("No Google Play key. Run `rankwell play init --key <service-account.json>` (a service "
                             "account with access to the app in Play Console → Users and permissions).")
@@ -133,11 +155,11 @@ def has_play_key() -> bool:
 
 
 def store_play_key(path: Path | str) -> PlayKey:
-    """Check the JSON key file and keep only the fields Rankwell needs in the Keychain."""
+    """Check the JSON key file and keep only the fields Rankwell needs in the keyring."""
     text = Path(path).expanduser().read_text()
     key = _play_from_json(text)
     data = json.loads(text)
-    _keyring().set_password(SERVICE, _PLAY, json.dumps({k: data[k] for k in _PLAY_FIELDS if k in data}))
+    _set(_PLAY, json.dumps({k: data[k] for k in _PLAY_FIELDS if k in data}))
     return key
 
 

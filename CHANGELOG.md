@@ -11,8 +11,14 @@ All notable changes to this project are documented here. The format follows
   next start) and fall back to a tagged crontab line when `systemctl --user` is not available. Cron cannot catch
   up missed days, and `status` and `doctor` say so. The macOS launchd job is unchanged.
 
+- Linux keys: the App Store Connect and Google Play keys go in the Secret Service (GNOME Keyring or KWallet).
+  Without a keyring, Rankwell says so and points to the `RANKWELL_ASC_*` and `RANKWELL_PLAY_KEY_PATH`
+  environment variables instead of failing.
+
 ### Changed
-- `rankwell doctor` and `collection_status` report the daily schedule on Linux too.
+- `rankwell doctor` and `collection_status` report the daily schedule on Linux too; `doctor` suggests the uv
+  install script on Linux instead of Homebrew.
+- README, CONTRIBUTING and the architecture notes cover Linux.
 
 ## [0.2.2] - 2026-11-08
 

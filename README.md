@@ -4,7 +4,7 @@
 
 <br>
 
-[![CI](https://github.com/AkashShahriar55/rankwell/actions/workflows/ci.yml/badge.svg)](https://github.com/AkashShahriar55/rankwell/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/AkashShahriar55/rankwell?color=3ddc97)](https://github.com/AkashShahriar55/rankwell/releases) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB.svg) ![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg) ![Stores](https://img.shields.io/badge/stores-App%20Store%20%7C%20Google%20Play-black.svg)
+[![CI](https://github.com/AkashShahriar55/rankwell/actions/workflows/ci.yml/badge.svg)](https://github.com/AkashShahriar55/rankwell/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/AkashShahriar55/rankwell?color=3ddc97)](https://github.com/AkashShahriar55/rankwell/releases) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB.svg) ![Platform: macOS | Linux](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg) ![Stores](https://img.shields.io/badge/stores-App%20Store%20%7C%20Google%20Play-black.svg)
 
 **[Quick start](#quick-start)** · **[Step-by-step guide](https://medium.com/@akashshahriar55/how-to-automate-app-store-optimization-with-claude-code-step-by-step-687f1a2c1ebd)** · **[Skills](#skills)** · **[How it works](#how-it-works)** ·
 **[Safety](#safety)** · **[Command line](#command-line)** · **[FAQ](#faq)**
@@ -20,7 +20,7 @@ Most ASO tools are dashboards you forget to open, and most release tools stop at
 write the code:
 
 - **Watches.** A daily job tracks keyword ranks, your listing and your competitors', reviews, category charts
-  and App Store Connect analytics, and keeps the history on your Mac.
+  and App Store Connect analytics, and keeps the history on your computer.
 - **Advises with evidence.** Gap reports, keyword research and listing copy come with the numbers behind them
   and cite the ASO rule they follow.
 - **Ships.** Listings, screenshots, review replies, builds, submissions and Google Play releases go out through
@@ -28,7 +28,7 @@ write the code:
 - **Remembers.** Decisions, experiments and progress live in a `.aso/` folder in each app repo, so the next
   session starts where the last one stopped.
 
-> **Status:** early development (0.x). iOS App Store and Google Play. macOS only.
+> **Status:** early development (0.x). iOS App Store and Google Play. macOS and Linux (iOS builds need a Mac).
 
 ## Quick start
 
@@ -48,7 +48,7 @@ claude plugin install rankwell@rankwell
 "Set up Rankwell for my app"
 ```
 
-Setup checks the install, stores your App Store Connect key in the macOS Keychain (you give the path of the
+Setup checks the install, stores your App Store Connect key in the system keyring (you give the path of the
 `.p8` file; its content never enters the chat), adds the app and its competitors, picks keywords and runs the
 first collection.
 
@@ -71,8 +71,8 @@ listing change and a release.
 "Did the new subtitle work?"
 ```
 
-**Requirements:** macOS, [uv](https://docs.astral.sh/uv/) (`brew install uv`), Xcode command line tools for
-iOS builds, and an [App Store Connect API key](https://developer.apple.com/documentation/appstoreconnectapi/creating-api-keys-for-app-store-connect-api)
+**Requirements:** macOS or Linux, [uv](https://docs.astral.sh/uv/) (`brew install uv`, or
+`curl -LsSf https://astral.sh/uv/install.sh | sh`), Xcode command line tools on a Mac for iOS builds, and an [App Store Connect API key](https://developer.apple.com/documentation/appstoreconnectapi/creating-api-keys-for-app-store-connect-api)
 with the App Manager role. Public data (ranks, competitors, keywords) works without a key. Google Play needs a
 service account with access to your apps.
 
@@ -149,12 +149,12 @@ name; just ask.
 
 ```mermaid
 flowchart LR
-    subgraph Mac["Your Mac"]
+    subgraph Mac["Your computer"]
         CC["Claude Code<br/>skills"] -->|MCP| S["Rankwell server"]
-        J["Daily job<br/>(launchd)"] --> DB[("SQLite<br/>~/.rankwell")]
+        J["Daily job<br/>(launchd / systemd)"] --> DB[("SQLite<br/>~/.rankwell")]
         S --> DB
         S --> A[".aso/ in each<br/>app repo"]
-        S --> K["Keychain<br/>(keys)"]
+        S --> K["System keyring<br/>(keys)"]
     end
     S -->|read| P["App Store<br/>public data"]
     S -->|plan → yes → apply| ASC["App Store Connect"]
@@ -167,7 +167,7 @@ flowchart LR
 |---|---|
 | **Skills** | Thirteen step-by-step playbooks Claude follows for setup, daily briefings, keywords, listings, screenshots, reviews, code audits, releases, rejections, Google Play and experiments |
 | **MCP server** | About 60 tools. Every result carries a ready-to-show block of Markdown tables, sparklines and bars |
-| **Daily job** | Ranks (top 200) for every tracked keyword, listings and their changes for you and your competitors, your reviews, category charts, App Store Connect analytics, and weekly Google demand. It catches up on missed days when your Mac was asleep |
+| **Daily job** | Ranks (top 200) for every tracked keyword, listings and their changes for you and your competitors, your reviews, category charts, App Store Connect analytics, and weekly Google demand. It catches up on missed days when your computer was asleep |
 | **Storage** | Numbers in a local SQLite database; context, decisions, experiments and release settings as Markdown and TOML in each app repo, versioned with your code |
 | **Knowledge** | Short ASO rules in [`knowledge/`](knowledge), cited by id in every recommendation. Add your own notes and they win when they disagree |
 
@@ -187,8 +187,8 @@ Rankwell can change your live store listing, so every write follows the same rul
    ones go only after the new ones finished processing.
 6. **Google Play** changes are made in a single Play edit that is committed only when every step worked.
 
-Keys live in the macOS Keychain, never in files, logs, the database or the chat. All data stays on your Mac;
-there is no Rankwell server.
+Keys live in the system keyring (the Keychain on macOS, GNOME Keyring or KWallet on Linux), never in files,
+logs, the database or the chat. All data stays on your computer; there is no Rankwell server.
 
 ## Command line
 
@@ -239,8 +239,12 @@ Yes, as an MCP server: `uv tool install "git+https://github.com/AkashShahriar55/
 for Claude Code skills but read fine as instructions in any agent. For listing copy without the server, use
 the standalone skill in [`extras/app-store-listing-writer`](extras/app-store-listing-writer).
 
-**Windows or Linux?**
-Not yet. The Keychain, launchd and Xcode parts are macOS-specific.
+**Does it run on Linux?**
+Yes. The daily job uses a systemd user timer (or cron when systemd is not available; cron cannot catch up
+missed days), and keys go in GNOME Keyring or KWallet. On a server without a keyring, pass them as
+environment variables (`RANKWELL_ASC_ISSUER_ID`, `RANKWELL_ASC_KEY_ID`, `RANKWELL_ASC_KEY_PATH`,
+`RANKWELL_PLAY_KEY_PATH`). For the timer to run while you are logged out, run `loginctl enable-linger $USER`
+once. Building and uploading iOS apps needs Xcode, so a Mac. Windows is not supported yet.
 
 ## Contributing
 

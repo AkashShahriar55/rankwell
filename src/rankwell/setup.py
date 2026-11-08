@@ -24,7 +24,7 @@ def key_id_from_name(name: str) -> str | None:
 
 
 def save_asc_key(key_path: str, issuer_id: str, key_id: str | None = None) -> dict[str, Any]:
-    """Read a .p8 file and store it in the Keychain. Returns only the key id: the key itself never leaves here."""
+    """Read a .p8 file and store it in the system keyring. Returns only the key id: the key itself never leaves here."""
     path = Path(key_path).expanduser()
     if not path.is_file():
         raise RankwellError(f"No file at {path}.")
@@ -39,7 +39,7 @@ def save_asc_key(key_path: str, issuer_id: str, key_id: str | None = None) -> di
         raise RankwellError(f"{path.name} is not an App Store Connect private key (.p8).")
     secrets.store_asc_key(issuer_id.strip(), kid, text)
     return {"saved": True, "key_id": kid, "file": str(path),
-            "note": "Saved in the macOS Keychain. The .p8 file is no longer needed by Rankwell."}
+            "note": "Saved in the system keyring. The .p8 file is no longer needed by Rankwell."}
 
 
 def user_bin() -> Path:
@@ -81,7 +81,8 @@ def checks() -> list[dict[str, Any]]:
         out.append({"name": name, "ok": ok, "detail": detail, "fix": "" if ok else fix, "optional": optional})
 
     add("Python", sys.version_info >= (3, 11), sys.version.split()[0], "Python 3.11 or newer is needed.")
-    add("uv", schedule.find_uv() is not None, "", "brew install uv")
+    add("uv", schedule.find_uv() is not None, "",
+        "brew install uv" if sys.platform == "darwin" else "curl -LsSf https://astral.sh/uv/install.sh | sh")
     db = dbmod.Database()
     add("Database", True, db.path)
     n = len(apps.list_apps(db))

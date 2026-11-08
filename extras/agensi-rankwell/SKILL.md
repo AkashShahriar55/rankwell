@@ -1,6 +1,6 @@
 ---
 name: rankwell
-description: App Store Optimization and release automation for iOS and Google Play apps through the Rankwell MCP server - daily keyword ranks, competitor gaps, keyword research, listing changes, screenshot uploads, review replies, code audits and releases, each store change approved by the user first. Use when the user asks how their app is doing, what it lacks against competitors, which keywords to target, to change their App Store or Google Play listing, upload screenshots, reply to reviews, ship a version, or fix a rejection. Needs the Rankwell MCP server (free, open source, macOS); see SETUP.md.
+description: App Store Optimization and release automation for iOS and Google Play apps through the Rankwell MCP server - daily keyword ranks, competitor gaps, keyword research, listing changes, screenshot uploads, review replies, code audits and releases, each store change approved by the user first. Use when the user asks how their app is doing, what it lacks against competitors, which keywords to target, to change their App Store or Google Play listing, upload screenshots, reply to reviews, ship a version, or fix a rejection. Needs the Rankwell MCP server (free, open source, macOS and Linux); see SETUP.md.
 ---
 
 # Rankwell
@@ -13,7 +13,7 @@ so the server must be installed first.
 If Rankwell's tools (for example `setup_status`, `list_apps`, `app_today`) are not available, the server is
 not set up: walk the user through `SETUP.md` in this folder, step by step, and stop until it is done. Never
 ask the user to paste an App Store Connect key or Google Play key into the chat; the server reads them from a
-file path the user types and stores them in the macOS Keychain.
+file path the user types and stores them in the system keyring (Keychain on macOS).
 
 ## 1. Route the request
 Read the matching playbook and follow it exactly:

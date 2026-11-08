@@ -24,7 +24,7 @@ def main() -> None:
 @click.option("--issuer-id", help="Issuer id from App Store Connect → Users and Access → Integrations.")
 @click.option("--key-id", help="Key id (read from the file name when left out).")
 def init(key_file: Path | None, issuer_id: str | None, key_id: str | None) -> None:
-    """Create ~/.rankwell, the database and settings; store an App Store Connect key in the Keychain."""
+    """Create ~/.rankwell, the database and settings; store an App Store Connect key in the system keyring."""
     cfg = config.ensure_file()
     db = dbmod.Database()
     click.echo(f"Settings:  {cfg}")
@@ -36,7 +36,7 @@ def init(key_file: Path | None, issuer_id: str | None, key_id: str | None) -> No
         if not kid:
             raise click.UsageError("Cannot read the key id from the file name; pass --key-id.")
         secrets.store_asc_key(issuer_id, kid, key_file.read_text())
-        click.echo(f"App Store Connect key {kid} saved in the Keychain (service 'rankwell').")
+        click.echo(f"App Store Connect key {kid} saved in the system keyring (service 'rankwell').")
         click.echo("You can now delete the .p8 file or keep it somewhere safe; Rankwell no longer needs it.")
 
 

@@ -23,9 +23,9 @@ def register(mcp: MCPServer) -> None:
     @mcp.tool()
     @safe
     def asc_key_save(key_path: str, issuer_id: str, key_id: str | None = None) -> dict[str, Any]:
-        """Store an App Store Connect API key in the macOS Keychain from its .p8 file path. Rankwell reads the
+        """Store an App Store Connect API key in the system keyring from its .p8 file path. Rankwell reads the
         file itself; never read or show the .p8 content. key_id is taken from AuthKey_<KEY ID>.p8 when left out.
-        Ask the user before calling: this changes their Keychain."""
+        Ask the user before calling: this changes their keyring."""
         return setup.save_asc_key(key_path, issuer_id, key_id)
 
     @mcp.tool()

@@ -46,7 +46,7 @@ rankwell/
 |---|---|
 | `paths.py` | Where things live: `RANKWELL_HOME` (default `~/.rankwell`), database, config, logs, cache |
 | `config.py` | User settings in `~/.rankwell/config.toml` (default countries, collect time, knowledge dirs) |
-| `secrets.py` | App Store Connect key and other secrets in the macOS Keychain (`keyring`), env vars override |
+| `secrets.py` | App Store Connect key and other secrets in the system keyring (`keyring`), env vars override |
 | `db/` | SQLite connection (WAL, foreign keys, busy timeout), numbered SQL migrations |
 | `stores/appstore.py` | Public App Store data: search, lookup, autocomplete, subtitle, charts, reviews |
 | `stores/asc.py` | App Store Connect API client (JWT ES256, retries, pagination) |
@@ -71,7 +71,7 @@ rankwell/
 | `importers/` | One-off imports (the original tracker's Supabase) |
 | `mcp/server.py` | MCP tools Claude calls |
 | `cli.py` | `rankwell` command: init, doctor, install-cli, collect, mcp, schedule, hook, import, ship, screenshots, play |
-| `schedule.py` | Installs and removes the launchd job for the daily collection |
+| `schedule.py` | Installs and removes the daily collection job: launchd on macOS, a systemd user timer or cron on Linux |
 
 ## Storage
 
@@ -95,16 +95,17 @@ and an audit log of every write to App Store Connect and Google Play.
 The database is one file. Backup is a copy (`rankwell backup` writes a consistent copy with SQLite's
 backup API). Migrations are numbered SQL files applied in order and recorded in `schema_migrations`.
 
-**Secrets.** The App Store Connect issuer id, key id and private key (.p8 content) go in the Keychain under
-the service `rankwell`. `RANKWELL_ASC_ISSUER_ID`, `RANKWELL_ASC_KEY_ID`, `RANKWELL_ASC_KEY_PATH` override
-it (CI). The Google Play service account JSON is one Keychain entry (`play_service_account`);
+**Secrets.** The App Store Connect issuer id, key id and private key (.p8 content) go in the system keyring
+(Keychain on macOS, Secret Service on Linux) under the service `rankwell`. `RANKWELL_ASC_ISSUER_ID`, `RANKWELL_ASC_KEY_ID`, `RANKWELL_ASC_KEY_PATH` override
+it (CI). The Google Play service account JSON is one keyring entry (`play_service_account`);
 `RANKWELL_PLAY_KEY_PATH` overrides it. Secrets never go in the database, the `.aso/` folder, logs or MCP
 responses.
 
 ## Daily collection
 
-`rankwell collect` runs once a day from launchd (`rankwell schedule install --at 11:00`). It is
-idempotent: running it twice on one day updates that day's rows. When the job missed days (Mac asleep or
+`rankwell collect` runs once a day from launchd on macOS or a systemd user timer on Linux, with cron as
+the Linux fallback (`rankwell schedule install --at 11:00`). It is
+idempotent: running it twice on one day updates that day's rows. When the job missed days (computer asleep or
 off), the SessionStart hook runs a catch-up in the background.
 
 Per app and country:

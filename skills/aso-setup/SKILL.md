@@ -16,7 +16,7 @@ Explain terms the first time you use them, in one line:
 Use the Rankwell MCP tools named below. For every choice, ask with the AskUserQuestion tool and give options.
 
 ## 1. Check the install
-`setup_status()` and show its `display`. Fix what you can in order: `uv` missing → `brew install uv` (then
+`setup_status()` and show its `display`. Fix what you can in order: `uv` missing → `brew install uv` on macOS, `curl -LsSf https://astral.sh/uv/install.sh | sh` on Linux (then
 restart Claude Code); Xcode tools missing → `xcode-select --install` (only needed to upload builds). Lines
 about apps, key, collection and schedule are fixed by the steps below. If "rankwell in the terminal" is
 missing, offer `cli_install()` (it links `~/.local/bin/rankwell`; ask first).
@@ -32,7 +32,7 @@ Tell the user, step by step:
 3. Download the `.p8` file (Apple allows one download). Copy the **Issuer ID** (top of the page).
 4. Ask them to type the path of the `.p8` file (not to attach or @-mention it: that puts the key's content
    into the conversation) and the issuer id, then ask
-   "Save this key in your Keychain?" and on yes call `asc_key_save(key_path, issuer_id)`. Rankwell reads the
+   "Save this key in your system keyring (Keychain on macOS)?" and on yes call `asc_key_save(key_path, issuer_id)`. Rankwell reads the
    file itself; the key id comes from the file name `AuthKey_<KEY ID>.p8`. Afterwards the `.p8` can be deleted
    or stored somewhere safe. In a terminal the same is `rankwell init --asc-key <path> --issuer-id <id>`.
 
