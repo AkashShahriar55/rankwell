@@ -15,7 +15,7 @@ Restart Claude Code and say "Set up Rankwell for my app". You can skip the rest 
 ## Cursor, Claude Desktop, Windsurf and other MCP clients
 1. Install the server as a command:
 
-       uv tool install "git+https://github.com/AkashShahriar55/rankwell@v0.2.2"
+       uv tool install "git+https://github.com/AkashShahriar55/rankwell@v0.2.3"
 
    This adds `rankwell` to `~/.local/bin`. Check it with `rankwell doctor`.
 

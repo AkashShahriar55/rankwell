@@ -1,6 +1,6 @@
 [project]
 name = "rankwell"
-version = "0.2.2"
+version = "0.2.3"
 description = "App Store Optimization and release automation for Claude Code"
 readme = "README.md"
 requires-python = ">=3.11"

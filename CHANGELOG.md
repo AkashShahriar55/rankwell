@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-11
+
 ### Added
 - Linux scheduling: `rankwell schedule install|uninstall|status` use a systemd user timer
   (`~/.config/systemd/user/rankwell-collect.{service,timer}`, `Persistent=true` so a missed run happens at the
